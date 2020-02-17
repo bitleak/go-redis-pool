@@ -3,6 +3,8 @@ package pool
 import (
 	"errors"
 	"math/rand"
+	"strconv"
+	"strings"
 	"time"
 
 	redis "github.com/go-redis/redis/v7"
@@ -17,18 +19,16 @@ const (
 	DistRR
 )
 
-type NodeConfig struct {
-	Addr     string
-	Password string
-	Weight   int
-}
-
 // TODO: supports sentinel
 type HAConfig struct {
-	Master   *NodeConfig
-	Slaves   []*NodeConfig
-	Options  *redis.Options
-	DistType int
+	Master           string
+	Slaves           []string
+	Password         string
+	ReadonlyPassword string
+	Options          *redis.Options
+	DistType         int
+
+	weights []int64
 }
 
 // HAConnFactory impls the read/write splits between master and slaves
@@ -39,23 +39,30 @@ type HAConnFactory struct {
 
 	ind          int
 	rand         *rand.Rand
-	weightRanges []int
+	weightRanges []int64
 }
 
-func (cfg *HAConfig) init() {
+func (cfg *HAConfig) init() error {
+	var err error
+
 	if cfg.DistType < DistRandom || cfg.DistType > DistRR {
 		cfg.DistType = DistRR
 	}
-	if cfg.DistType == DistByWeight {
-		if cfg.Master.Weight <= 0 {
-			cfg.Master.Weight = 100
-		}
-		for i, slave := range cfg.Slaves {
-			if slave.Weight <= 0 {
-				cfg.Slaves[i].Weight = 100
+	if cfg.Options == nil {
+		cfg.Options = &redis.Options{}
+	}
+	cfg.weights = make([]int64, len(cfg.Slaves))
+	for i, slave := range cfg.Slaves {
+		elems := strings.Split(slave, ":")
+		cfg.weights[i] = 100
+		if len(elems) == 3 {
+			cfg.weights[i], err = strconv.ParseInt(elems[2], 10, 64)
+			if err != nil {
+				return errors.New("the weight should be integer")
 			}
 		}
 	}
+	return nil
 }
 
 // NewHAConnFactory create new ha factory
@@ -70,27 +77,25 @@ func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
 	factory.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 	factory.cfg = cfg
 	options := cfg.Options
-	if options == nil {
-		options = &redis.Options{}
-	}
-	options.Addr = cfg.Master.Addr
-	options.Password = cfg.Master.Password
+	options.Addr = cfg.Master
+	options.Password = cfg.Password
 	factory.master = redis.NewClient(options)
+	slavePassword := cfg.Password
+	if cfg.ReadonlyPassword != "" {
+		slavePassword = cfg.ReadonlyPassword
+	}
 	factory.slaves = make([]*redis.Client, len(cfg.Slaves))
 	for i, slave := range cfg.Slaves {
 		slaveOptions := *options
-		slaveOptions.Addr = slave.Addr
-		slaveOptions.Password = slave.Password
+		slaveOptions.Addr = slave
+		slaveOptions.Password = slavePassword
 		factory.slaves[i] = redis.NewClient(&slaveOptions)
 	}
 	if cfg.DistType == DistByWeight {
-		factory.weightRanges = make([]int, len(cfg.Slaves))
-		for i, slave := range cfg.Slaves {
-			if i == 0 {
-				factory.weightRanges[0] = slave.Weight
-			} else {
-				factory.weightRanges[i] = factory.weightRanges[i-1] + slave.Weight
-			}
+		factory.weightRanges = make([]int64, len(cfg.Slaves))
+		factory.weightRanges[0] = cfg.weights[0]
+		for i := 1; i < len(cfg.Slaves); i++ {
+			factory.weightRanges[i] = factory.weightRanges[i-1] + cfg.weights[i]
 		}
 	}
 	return factory, nil
@@ -119,7 +124,7 @@ func (factory *HAConnFactory) getSlaveConn(key ...string) (*redis.Client, error)
 		if n == 1 {
 			return factory.slaves[0], nil
 		}
-		r := factory.rand.Intn(factory.weightRanges[n-1])
+		r := factory.rand.Int63n(factory.weightRanges[n-1])
 		for i, weightRange := range factory.weightRanges {
 			if r <= weightRange {
 				return factory.slaves[i], nil

@@ -16,26 +16,16 @@ var _ = Describe("Pool", func() {
 
 	BeforeEach(func() {
 		haConfig := &HAConfig{
-			Master: &NodeConfig{
-				Addr: "127.0.0.1:8379",
-			},
-			Slaves: []*NodeConfig{
-				&NodeConfig{
-					Addr: "127.0.0.1:8380",
-				},
-				&NodeConfig{
-					Addr: "127.0.0.1:8381",
-				},
+			Master: "127.0.0.1:8379",
+			Slaves: []string{
+				"127.0.0.1:8380",
+				"127.0.0.1:8381",
 			},
 		}
 		haConfig1 := &HAConfig{
-			Master: &NodeConfig{
-				Addr: "127.0.0.1:8382",
-			},
-			Slaves: []*NodeConfig{
-				&NodeConfig{
-					Addr: "127.0.0.1:8383",
-				},
+			Master: "127.0.0.1:8382",
+			Slaves: []string{
+				"127.0.0.1:8383",
 			},
 		}
 
