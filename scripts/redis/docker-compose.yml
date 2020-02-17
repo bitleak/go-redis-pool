@@ -1,0 +1,30 @@
+version: '2'
+
+services:
+  redis_master:
+    image: redis:4
+    ports:
+      - "8379:6379"
+
+  redis_slave_1:
+    image: redis:4
+    command: redis-server --slaveof redis_master 6379
+    ports:
+      - "8380:6379"
+
+  redis_slave_2:
+    image: redis:4
+    command: redis-server --slaveof redis_master 6379
+    ports:
+      - "8381:6379"
+
+  redis_master_new:
+    image: redis:4
+    ports:
+      - "8382:6379"
+
+  redis_slave_new_1:
+    image: redis:4
+    command: redis-server --slaveof redis_master_new 6379
+    ports:
+      - "8383:6379"
