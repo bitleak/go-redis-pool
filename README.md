@@ -4,6 +4,13 @@ go-redis-pool was designed to implement the read/write split in Redis master-sla
 
 ## Installation
 
+go-redis-pool requires a Go version with [Modules](https://github.com/golang/go/wiki/Modules) support and uses import versioning. So please make sure to initialize a Go module before installing go-redis-pool:
+
+```shell
+go mod init github.com/my/repo
+go get github.com/meitu/go-redis-pool
+```
+
 ## Quick Start
 
 ### Setup The Master-Slave Pool
@@ -22,12 +29,32 @@ pool, err := pool.NewHA(&pool.HAConfig{
 pool.Set("foo", "bar", 0)
 ```
 
-The read-only commands would go throught slaves, and write commands would into the master instance.
+The read-only commands would go throught slaves and write commands would into the master instance. We use the Round-Robin as default when determing which slave to serve the readonly request, and currently supports:
+
+* RoundRobin (default)
+* Random
+* Weight
+
+For example, we change the distribution type to `Weight`:
+
+```go
+pool, err := pool.NewHA(&pool.HAConfig{
+        Master: "127.0.0.1:6379",
+        Slaves: []string{
+            "127.0.0.1:6380",  // default weight is 100 if missing
+            "127.0.0.1:6381:200", // weight is 200
+            "127.0.0.1:6382:300", // weigght is 300
+        },
+        DistType: DistByWeight,
+}
+```
+
+The first slave would serve 1/6 reqeusts, and second slave would serve 2/6, last one would serve 3/6. 
+
 
 #### Setup The Sharding Pool
 
 ```go
-
 pool, err := pool.NewShard(&pool.ShardConfig{
     Shards: []*HAConfig {
 
@@ -55,9 +82,10 @@ pool, err := pool.NewShard(&pool.ShardConfig{
 })
 
 pool.Set("foo", "bar", 0)
+
 ```
 
-## How To
+Shard pool use the `CRC32` as default hash function when sharding the key, you can overwrite the `HashFn` in config if wants to use other sharding hash function.
 
 ## Test
 
