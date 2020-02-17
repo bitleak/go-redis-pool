@@ -5,7 +5,7 @@ import (
 	"hash/crc32"
 	"sync"
 
-	"github.com/go-redis/redis"
+	redis "github.com/go-redis/redis/v7"
 )
 
 var (
