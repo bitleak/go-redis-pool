@@ -3,7 +3,7 @@ package pool
 import (
 	"time"
 
-	redis "github.com/go-redis/redis/v7"
+	"github.com/go-redis/redis/v7"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -649,12 +649,266 @@ var _ = Describe("Pool", func() {
 			destKey := "rpoplpush_destination"
 			for _, pool := range pools {
 				ret, err := pool.RPopLPush(sourceKey, destKey).Result()
-				Expect(err).NotTo(Equal(HaveOccurred))
+				Expect(err).To(Equal(redis.Nil))
 				Expect(ret).To(Equal(""))
 				pool.LPush(sourceKey, "hello")
 				ret, err = pool.RPopLPush(sourceKey, destKey).Result()
-				Expect(err).NotTo(Equal(HaveOccurred))
+				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal("hello"))
+			}
+		})
+
+		It("sadd", func() {
+			key := "sadd_key"
+			members := []string{"sadd_member1", "sadd_member2", "sadd_member3"}
+			for _, pool := range pools {
+				ret, err := pool.SAdd(key, members).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(3)))
+				Expect(pool.SMembers(key).Val()).To(ContainElements("sadd_member1", "sadd_member2", "sadd_member3"))
+			}
+		})
+
+		It("scard", func() {
+			key := "scard_key"
+			members := []string{"scard_member1", "scard_member2", "scard_member3"}
+			for _, pool := range pools {
+				ret, err := pool.SAdd(key, members).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(3)))
+				ret, err = pool.SCard(key).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(3)))
+			}
+		})
+
+		It("sdiff", func() {
+			key1 := "sdiff_key1"
+			members1 := []string{"sdiff_member1", "sdiff_member2"}
+			key2 := "sdiff_key2"
+			members2 := []string{"sdiff_member2", "sdiff_member3"}
+			for _, pool := range pools {
+				Expect(pool.SAdd(key1, members1).Val()).To(Equal(int64(2)))
+				Expect(pool.SAdd(key2, members2).Val()).To(Equal(int64(2)))
+				ret, err := pool.SDiff(key1, key2).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(ContainElements("sdiff_member1"))
+			}
+		})
+
+		It("sdiffstore", func() {
+			key1 := "sdiffstore_key1"
+			members1 := []string{"sdiffstore_member1", "sdiffstore_member2"}
+			key2 := "sdiffstore_key2"
+			members2 := []string{"sdiffstore_member2", "sdiffstore_member3"}
+			destination := "sdiffstore_destination"
+			for _, pool := range pools {
+				Expect(pool.SAdd(key1, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(key2, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SDiffStore(destination, key1, key2).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(1)))
+				Expect(pool.SMembers(destination).Val()).To(ContainElements("sdiffstore_member1"))
+			}
+		})
+
+		It("sinter", func() {
+			key1 := "sinter_key1"
+			members1 := []string{"sinter_member1", "sinter_member2"}
+			key2 := "sinter_key2"
+			members2 := []string{"sinter_member2", "sinter_member3"}
+			for _, pool := range pools {
+				Expect(pool.SAdd(key1, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(key2, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SInter(key1, key2).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(ContainElements("sinter_member2"))
+			}
+		})
+
+		It("sinterstore", func() {
+			key1 := "sinterstore_key1"
+			members1 := []string{"sinterstore_member1", "sinterstore_member2"}
+			key2 := "sinterstore_key2"
+			members2 := []string{"sinterstore_member2", "sinterstore_member3"}
+			destination := "sinterstore_destination"
+			for _, pool := range pools {
+				Expect(pool.SAdd(key1, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(key2, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SInterStore(destination, key1, key2).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(1)))
+				Expect(pool.SMembers(destination).Val()).To(ContainElements("sinterstore_member2"))
+			}
+		})
+
+		It("sismember", func() {
+			key := "sismember_key"
+			members := []string{"sismember_member1", "sismember_member2", "sismember_member3"}
+			for _, pool := range pools {
+				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SIsMember(key, "sismember_member1").Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(true))
+				ret, err = pool.SIsMember(key, "sismember_member4").Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(false))
+			}
+		})
+
+		It("smembers", func() {
+			key := "smembers_key"
+			members := []string{"smembers_member1", "smembers_member2", "smembers_member3"}
+			for _, pool := range pools {
+				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SMembers(key).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(ContainElements("smembers_member1", "smembers_member2", "smembers_member3"))
+			}
+		})
+
+		It("smembersmap", func() {
+			key := "smembersmap_key"
+			members := []string{"smembersmap_member1", "smembersmap_member2", "smembersmap_member3"}
+			for _, pool := range pools {
+				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SMembersMap(key).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(HaveKey("smembersmap_member1"))
+				Expect(ret).To(HaveKey("smembersmap_member2"))
+				Expect(ret).To(HaveKey("smembersmap_member3"))
+			}
+		})
+
+		It("smove", func() {
+			source := "smove_key1"
+			members1 := []string{"smove_member1", "smove_member2"}
+			destination := "smove_key2"
+			members2 := []string{"smove_member3", "smove_member4"}
+			for _, pool := range pools {
+				Expect(pool.SAdd(source, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(destination, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SMove(source, destination, "smove_member1").Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(true))
+				Expect(pool.SMembers(destination).Val()).To(ContainElements("smove_member1"))
+			}
+		})
+
+		It("spop", func() {
+			key := "spop_key"
+			members := []string{"spop_member1", "spop_member2", "spop_member3"}
+			for _, pool := range pools {
+				memberMap := make(map[string]bool)
+				for _, member := range members {
+					memberMap[member] = true
+				}
+				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SPop(key).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(memberMap[ret]).To(Equal(true))
+				delete(memberMap, ret)
+				for member := range memberMap {
+					Expect(pool.SMembers(key).Val()).To(ContainElements(member))
+				}
+			}
+		})
+
+		It("spopn", func() {
+			key := "spopn_key"
+			members := []string{"spopn_member1", "spopn_member2", "spopn_member3"}
+			for _, pool := range pools {
+				memberMap := make(map[string]bool)
+				for _, member := range members {
+					memberMap[member] = true
+				}
+				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
+				rets, err := pool.SPopN(key, 2).Result()
+				Expect(err).NotTo(HaveOccurred())
+				for _, ret := range rets {
+					Expect(memberMap[ret]).To(Equal(true))
+					delete(memberMap, ret)
+				}
+				for member := range memberMap {
+					Expect(pool.SMembers(key).Val()).To(ContainElements(member))
+				}
+			}
+		})
+
+		It("srandmember", func() {
+			key := "srandmember_key"
+			members := []string{"srandmember_member1", "srandmember_member2", "srandmember_member3"}
+			for _, pool := range pools {
+				memberMap := make(map[string]bool)
+				for _, member := range members {
+					memberMap[member] = true
+				}
+				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SRandMember(key).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(memberMap[ret]).To(Equal(true))
+				Expect(pool.SMembers(key).Val()).To(ContainElements("srandmember_member1", "srandmember_member2", "srandmember_member3"))
+			}
+		})
+
+		It("srandmembern", func() {
+			key := "srandmembern_key"
+			members := []string{"srandmembern_member1", "srandmembern_member2", "srandmembern_member3"}
+			for _, pool := range pools {
+				memberMap := make(map[string]bool)
+				for _, member := range members {
+					memberMap[member] = true
+				}
+				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
+				rets, err := pool.SRandMemberN(key, 2).Result()
+				Expect(err).NotTo(HaveOccurred())
+				for _, ret := range rets {
+					Expect(memberMap[ret]).To(Equal(true))
+				}
+				Expect(pool.SMembers(key).Val()).To(ContainElements("srandmembern_member1", "srandmembern_member2", "srandmembern_member3"))
+			}
+		})
+
+		It("srem", func() {
+			key := "srem_key"
+			members := []string{"srem_member1", "srem_member2", "srem_member3"}
+			for _, pool := range pools {
+				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SRem(key, "srem_member1", "srem_member2").Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(2)))
+				Expect(pool.SMembers(key).Val()).NotTo(ContainElements("srem_member1", "srem_member2"))
+			}
+		})
+
+		It("sunion", func() {
+			key1 := "sunion_key1"
+			members1 := []string{"sunion_member1", "sunion_member2"}
+			key2 := "sunion_key2"
+			members2 := []string{"sunion_member2", "sunion_member3"}
+			for _, pool := range pools {
+				Expect(pool.SAdd(key1, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(key2, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SUnion(key1, key2).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(ContainElements("sunion_member1", "sunion_member2", "sunion_member3"))
+			}
+		})
+
+		It("sunionstore", func() {
+			key1 := "sunionstore_source1"
+			members1 := []string{"sunionstore_member1", "sunionstore_member2"}
+			key2 := "sunionstore_source2"
+			members2 := []string{"sunionstore_member2", "sunionstore_member3"}
+			destination := "sunionstore_destination"
+			for _, pool := range pools {
+				Expect(pool.SAdd(key1, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(key2, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SUnionStore(destination, key1, key2).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(3)))
+				Expect(pool.SMembers(destination).Val()).To(ContainElements("sunionstore_member1", "sunionstore_member2", "sunionstore_member3"))
+				pool.Del(destination)
 			}
 		})
 	})
