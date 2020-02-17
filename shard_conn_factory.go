@@ -13,17 +13,17 @@ var (
 	errPartialCommandFailure = errors.New("partital failure in command")
 )
 
-type ShardPoolConfig struct {
-	Shards []*HAPoolConfig
+type ShardConfig struct {
+	Shards []*HAConfig
 	HashFn func(key []byte) uint32
 }
 
 type ShardConnFactory struct {
-	cfg    *ShardPoolConfig
+	cfg    *ShardConfig
 	shards []*HAConnFactory
 }
 
-func NewShardConnFactory(cfg *ShardPoolConfig) (*ShardConnFactory, error) {
+func NewShardConnFactory(cfg *ShardConfig) (*ShardConnFactory, error) {
 	factory := &ShardConnFactory{
 		cfg:    cfg,
 		shards: make([]*HAConnFactory, len(cfg.Shards)),

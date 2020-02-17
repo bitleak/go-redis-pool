@@ -24,7 +24,7 @@ type NodeConfig struct {
 }
 
 // TODO: supports sentinel
-type HAPoolConfig struct {
+type HAConfig struct {
 	Master   *NodeConfig
 	Slaves   []*NodeConfig
 	Options  *redis.Options
@@ -33,7 +33,7 @@ type HAPoolConfig struct {
 
 // HAConnFactory impls the read/write splits between master and slaves
 type HAConnFactory struct {
-	cfg    *HAPoolConfig
+	cfg    *HAConfig
 	master *redis.Client
 	slaves []*redis.Client
 
@@ -42,7 +42,7 @@ type HAConnFactory struct {
 	weightRanges []int
 }
 
-func (cfg *HAPoolConfig) init() {
+func (cfg *HAConfig) init() {
 	if cfg.DistType < DistRandom || cfg.DistType > DistRR {
 		cfg.DistType = DistRR
 	}
@@ -59,7 +59,7 @@ func (cfg *HAPoolConfig) init() {
 }
 
 // NewHAConnFactory create new ha factory
-func NewHAConnFactory(cfg *HAPoolConfig) (*HAConnFactory, error) {
+func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
 	if cfg == nil {
 		return nil, errors.New("factory cfg shouldn't be empty")
 	}

@@ -105,7 +105,7 @@ type Pool struct {
 	connFactory ConnFactory
 }
 
-func NewHAPool(cfg *HAPoolConfig) (*Pool, error) {
+func NewHA(cfg *HAConfig) (*Pool, error) {
 	factory, err := NewHAConnFactory(cfg)
 	if err != nil {
 		return nil, err
@@ -115,7 +115,7 @@ func NewHAPool(cfg *HAPoolConfig) (*Pool, error) {
 	}, nil
 }
 
-func NewShardPool(cfg *ShardPoolConfig) (*Pool, error) {
+func NewShard(cfg *ShardConfig) (*Pool, error) {
 	factory, err := NewShardConnFactory(cfg)
 	if err != nil {
 		return nil, err

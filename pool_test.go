@@ -15,7 +15,7 @@ var _ = Describe("Pool", func() {
 	var pools []*Pool
 
 	BeforeEach(func() {
-		haConfig := &HAPoolConfig{
+		haConfig := &HAConfig{
 			Master: &NodeConfig{
 				Addr: "127.0.0.1:8379",
 			},
@@ -28,7 +28,7 @@ var _ = Describe("Pool", func() {
 				},
 			},
 		}
-		haConfig1 := &HAPoolConfig{
+		haConfig1 := &HAConfig{
 			Master: &NodeConfig{
 				Addr: "127.0.0.1:8382",
 			},
@@ -39,13 +39,13 @@ var _ = Describe("Pool", func() {
 			},
 		}
 
-		haPool, err = NewHAPool(haConfig)
+		haPool, err = NewHA(haConfig)
 		Expect(err).NotTo(HaveOccurred())
 		master, _ := haPool.WithMaster()
 		Expect(master.FlushDB().Err()).NotTo(HaveOccurred())
 
-		shardPool, err = NewShardPool(&ShardPoolConfig{
-			Shards: []*HAPoolConfig{
+		shardPool, err = NewShard(&ShardConfig{
+			Shards: []*HAConfig{
 				haConfig,
 				haConfig1,
 			},
