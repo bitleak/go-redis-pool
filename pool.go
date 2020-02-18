@@ -101,6 +101,12 @@ func newErrorScanCmd(err error) *redis.ScanCmd {
 	return cmd
 }
 
+func newErrorZSliceCmd(err error) *redis.ZSliceCmd {
+	cmd := &redis.ZSliceCmd{}
+	cmd.SetErr(err)
+	return cmd
+}
+
 type Pool struct {
 	connFactory ConnFactory
 }
