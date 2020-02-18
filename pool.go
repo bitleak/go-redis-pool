@@ -113,6 +113,18 @@ func newErrorScanCmd(err error) *redis.ScanCmd {
 	return cmd
 }
 
+func newErrorGeoCmd(err error) *redis.GeoPosCmd {
+	cmd := &redis.GeoPosCmd{}
+	cmd.SetErr(err)
+	return cmd
+}
+
+func newErrorGeoLocationCmd(err error) *redis.GeoLocationCmd {
+	cmd := &redis.GeoLocationCmd{}
+	cmd.SetErr(err)
+	return cmd
+}
+
 type Pool struct {
 	connFactory ConnFactory
 }
@@ -1399,4 +1411,84 @@ func (p *Pool) ZInterStore(destination string, store *redis.ZStore) *redis.IntCm
 	}
 	conn, _ := p.connFactory.getMasterConn(keys[0])
 	return conn.ZInterStore(destination, store)
+}
+
+func (p *Pool) GeoAdd(key string, geoLocation ...*redis.GeoLocation) *redis.IntCmd {
+	conn, err := p.connFactory.getMasterConn(key)
+	if err != nil {
+		return newErrorIntCmd(err)
+	}
+	return conn.GeoAdd(key, geoLocation...)
+}
+
+func (p *Pool) GeoPos(key string, members ...string) *redis.GeoPosCmd {
+	conn, err := p.connFactory.getSlaveConn(key)
+	if err != nil {
+		return newErrorGeoCmd(err)
+	}
+	return conn.GeoPos(key, members...)
+}
+
+func (p *Pool) GeoRadius(key string, longitude, latitude float64, query *redis.GeoRadiusQuery) *redis.GeoLocationCmd {
+	conn, err := p.connFactory.getSlaveConn(key)
+	if err != nil {
+		return newErrorGeoLocationCmd(err)
+	}
+	return conn.GeoRadius(key, longitude, latitude, query)
+}
+
+func (p *Pool) GeoRadiusStore(key string, longitude, latitude float64, query *redis.GeoRadiusQuery) *redis.IntCmd {
+	if _, ok := p.connFactory.(*HAConnFactory); ok {
+		conn, _ := p.connFactory.getMasterConn()
+		return conn.GeoRadiusStore(key, longitude, latitude, query)
+	}
+	factory := p.connFactory.(*ShardConnFactory)
+	if query.Store != "" && factory.isCrossMultiShards(key, query.Store) {
+		return newErrorIntCmd(errCrossMultiShards)
+	}
+	if query.StoreDist != "" && factory.isCrossMultiShards(key, query.StoreDist) {
+		return newErrorIntCmd(errCrossMultiShards)
+	}
+	conn, _ := p.connFactory.getMasterConn(key)
+	return conn.GeoRadiusStore(key, longitude, latitude, query)
+}
+
+func (p *Pool) GeoRadiusByMember(key, member string, query *redis.GeoRadiusQuery) *redis.GeoLocationCmd {
+	conn, err := p.connFactory.getSlaveConn(key)
+	if err != nil {
+		return newErrorGeoLocationCmd(err)
+	}
+	return conn.GeoRadiusByMember(key, member, query)
+}
+
+func (p *Pool) GeoRadiusByMemberStore(key, member string, query *redis.GeoRadiusQuery) *redis.IntCmd {
+	if _, ok := p.connFactory.(*HAConnFactory); ok {
+		conn, _ := p.connFactory.getMasterConn()
+		return conn.GeoRadiusByMemberStore(key, member, query)
+	}
+	factory := p.connFactory.(*ShardConnFactory)
+	if query.Store != "" && factory.isCrossMultiShards(key, query.Store) {
+		return newErrorIntCmd(errCrossMultiShards)
+	}
+	if query.StoreDist != "" && factory.isCrossMultiShards(key, query.StoreDist) {
+		return newErrorIntCmd(errCrossMultiShards)
+	}
+	conn, _ := p.connFactory.getMasterConn(key)
+	return conn.GeoRadiusByMemberStore(key, member, query)
+}
+
+func (p *Pool) GeoDist(key string, member1, member2, unit string) *redis.FloatCmd {
+	conn, err := p.connFactory.getSlaveConn(key)
+	if err != nil {
+		return newErrorFloatCmd(err)
+	}
+	return conn.GeoDist(key, member1, member2, unit)
+}
+
+func (p *Pool) GeoHash(key string, members ...string) *redis.StringSliceCmd {
+	conn, err := p.connFactory.getSlaveConn(key)
+	if err != nil {
+		return newErrorStringSliceCmd(err)
+	}
+	return conn.GeoHash(key, members...)
 }
