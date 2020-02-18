@@ -1,6 +1,6 @@
 package pool
 
-import "github.com/go-redis/redis"
+import redis "github.com/go-redis/redis/v7"
 
 func (p *Pool) ZAdd(key string, members ...*redis.Z) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
