@@ -101,6 +101,12 @@ func newErrorStringStructMapCmd(err error) *redis.StringStructMapCmd {
 	return cmd
 }
 
+func newErrorZSliceCmd(err error) *redis.ZSliceCmd {
+	cmd := &redis.ZSliceCmd{}
+	cmd.SetErr(err)
+	return cmd
+}
+
 func newErrorScanCmd(err error) *redis.ScanCmd {
 	cmd := &redis.ScanCmd{}
 	cmd.SetErr(err)
