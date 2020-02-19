@@ -84,6 +84,9 @@ func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
 	if cfg.ReadonlyPassword != "" {
 		slavePassword = cfg.ReadonlyPassword
 	}
+	if len(cfg.Slaves) == 0 {
+		cfg.Slaves = append(cfg.Slaves, cfg.Master)
+	}
 	factory.slaves = make([]*redis.Client, len(cfg.Slaves))
 	for i, slave := range cfg.Slaves {
 		slaveOptions := *options
