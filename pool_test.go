@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"math"
 	"time"
 
 	"github.com/go-redis/redis/v7"
@@ -901,6 +902,240 @@ var _ = Describe("Pool", func() {
 				pool.Del(destination)
 			}
 		})
+
+		It("geoadd", func() {
+			key := "geoadd_key"
+			geo1 := &redis.GeoLocation{
+				Name:      "Beijing",
+				Longitude: 116.405285,
+				Latitude:  39.904989,
+			}
+			geo2 := &redis.GeoLocation{
+				Name:      "Shanghai",
+				Longitude: 121.472644,
+				Latitude:  31.231706,
+			}
+			for _, pool := range pools {
+				ret, err := pool.GeoAdd(key, geo1, geo2).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(2)))
+				pool.Del(key)
+			}
+		})
+
+		It("geopos", func() {
+			key := "geopos_key"
+			geo1 := &redis.GeoLocation{
+				Name:      "Beijing",
+				Longitude: 116.405285,
+				Latitude:  39.904989,
+			}
+			geo2 := &redis.GeoLocation{
+				Name:      "Shanghai",
+				Longitude: 121.472644,
+				Latitude:  31.231706,
+			}
+			for _, pool := range pools {
+				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoPos(key, geo2.Name, geo1.Name).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(math.Abs(ret[0].Longitude - geo2.Longitude)).To(BeNumerically("<=", 0.00001))
+				Expect(math.Abs(ret[0].Latitude - geo2.Latitude)).To(BeNumerically("<=", 0.00001))
+				Expect(math.Abs(ret[1].Longitude - geo1.Longitude)).To(BeNumerically("<=", 0.00001))
+				Expect(math.Abs(ret[1].Latitude - geo1.Latitude)).To(BeNumerically("<=", 0.00001))
+			}
+		})
+
+		It("georadius", func() {
+			key := "georadius_key"
+			geo1 := &redis.GeoLocation{
+				Name:      "Beijing",
+				Longitude: 116.405285,
+				Latitude:  39.904989,
+			}
+			geo2 := &redis.GeoLocation{
+				Name:      "Shanghai",
+				Longitude: 121.472644,
+				Latitude:  31.231706,
+			}
+			for _, pool := range pools {
+				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoRadius(key, geo1.Longitude, geo1.Latitude, &redis.GeoRadiusQuery{
+					Radius:    10,
+					Unit:      "km",
+					WithCoord: true,
+					WithDist:  true,
+					Count:     10,
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(ret)).To(Equal(1))
+				Expect(ret[0].Name).To(Equal(geo1.Name))
+				Expect(math.Abs(ret[0].Longitude - geo1.Longitude)).To(BeNumerically("<=", 0.00001))
+				Expect(math.Abs(ret[0].Latitude - geo1.Latitude)).To(BeNumerically("<=", 0.00001))
+			}
+		})
+
+		It("georadiusstore", func() {
+			key := "georadiusstore_key"
+			geo1 := &redis.GeoLocation{
+				Name:      "Beijing",
+				Longitude: 116.405285,
+				Latitude:  39.904989,
+			}
+			geo2 := &redis.GeoLocation{
+				Name:      "Shanghai",
+				Longitude: 121.472644,
+				Latitude:  31.231706,
+			}
+			storeKey := "georadiusstore_store_dest"
+			storeDistKey := "georadiusstore_storedist_dest"
+			for _, pool := range pools {
+				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoRadiusStore(key, geo1.Longitude, geo1.Latitude, &redis.GeoRadiusQuery{
+					Radius: 10,
+					Unit:   "km",
+					Count:  10,
+					Store:  storeKey,
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(1)))
+				pos, err := pool.GeoPos(storeKey, geo1.Name).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(pos)).To(Equal(1))
+				Expect(math.Abs(pos[0].Longitude - geo1.Longitude)).To(BeNumerically("<=", 0.00001))
+				Expect(math.Abs(pos[0].Latitude - geo1.Latitude)).To(BeNumerically("<=", 0.00001))
+
+				ret, err = pool.GeoRadiusStore(key, geo1.Longitude, geo1.Latitude, &redis.GeoRadiusQuery{
+					Radius:    10,
+					Unit:      "km",
+					Count:     10,
+					StoreDist: storeDistKey,
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(1)))
+				dist, err := pool.ZRangeWithScores(storeDistKey, 0, -1).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(dist)).To(Equal(1))
+				Expect(dist[0].Member).To(Equal(geo1.Name))
+				Expect(dist[0].Score).To(BeNumerically("<=", 0.01))
+			}
+		})
+
+		It("georadiusbymember", func() {
+			key := "georadiusbymember_key"
+			geo1 := &redis.GeoLocation{
+				Name:      "Beijing",
+				Longitude: 116.405285,
+				Latitude:  39.904989,
+			}
+			geo2 := &redis.GeoLocation{
+				Name:      "Shanghai",
+				Longitude: 121.472644,
+				Latitude:  31.231706,
+			}
+			for _, pool := range pools {
+				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoRadiusByMember(key, geo1.Name, &redis.GeoRadiusQuery{
+					Radius:    10,
+					Unit:      "km",
+					WithCoord: true,
+					WithDist:  true,
+					Count:     10,
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(ret)).To(Equal(1))
+				Expect(ret[0].Name).To(Equal(geo1.Name))
+				Expect(math.Abs(ret[0].Longitude - geo1.Longitude)).To(BeNumerically("<=", 0.00001))
+				Expect(math.Abs(ret[0].Latitude - geo1.Latitude)).To(BeNumerically("<=", 0.00001))
+			}
+		})
+
+		It("georadiusbymemberstore", func() {
+			key := "georadiusbymemberstore_key"
+			geo1 := &redis.GeoLocation{
+				Name:      "Beijing",
+				Longitude: 116.405285,
+				Latitude:  39.904989,
+			}
+			geo2 := &redis.GeoLocation{
+				Name:      "Shanghai",
+				Longitude: 121.472644,
+				Latitude:  31.231706,
+			}
+			storeKey := "georadiusbymemberstore_store_key"
+			storeDistKey := "georadiusbymemberstore_storedist_key"
+			for _, pool := range pools {
+				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoRadiusByMemberStore(key, geo1.Name, &redis.GeoRadiusQuery{
+					Radius: 10,
+					Unit:   "km",
+					Count:  10,
+					Store:  storeKey,
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(1)))
+				pos, err := pool.GeoPos(storeKey, geo1.Name).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(pos)).To(Equal(1))
+				Expect(math.Abs(pos[0].Longitude - geo1.Longitude)).To(BeNumerically("<=", 0.00001))
+				Expect(math.Abs(pos[0].Latitude - geo1.Latitude)).To(BeNumerically("<=", 0.00001))
+
+				ret, err = pool.GeoRadiusByMemberStore(key, geo1.Name, &redis.GeoRadiusQuery{
+					Radius:    10,
+					Unit:      "km",
+					Count:     10,
+					StoreDist: storeDistKey,
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(Equal(int64(1)))
+				dist, err := pool.ZRangeWithScores(storeDistKey, 0, -1).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(dist)).To(Equal(1))
+				Expect(dist[0].Member).To(Equal(geo1.Name))
+				Expect(dist[0].Score).To(Equal(float64(0)))
+			}
+		})
+
+		It("geodist", func() {
+			key := "geodist_key"
+			geo1 := &redis.GeoLocation{
+				Name:      "Beijing",
+				Longitude: 116.405285,
+				Latitude:  39.904989,
+			}
+			geo2 := &redis.GeoLocation{
+				Name:      "Shanghai",
+				Longitude: 121.472644,
+				Latitude:  31.231706,
+			}
+			for _, pool := range pools {
+				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoDist(key, geo1.Name, geo2.Name, "km").Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ret).To(BeNumerically(">=", 1000))
+			}
+		})
+
+		It("geohash", func() {
+			key := "geohash_key"
+			geo1 := &redis.GeoLocation{
+				Name:      "Beijing",
+				Longitude: 116.405285,
+				Latitude:  39.904989,
+			}
+			geo2 := &redis.GeoLocation{
+				Name:      "Shanghai",
+				Longitude: 121.472644,
+				Latitude:  31.231706,
+			}
+			for _, pool := range pools {
+				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoHash(key, geo1.Name, geo2.Name).Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(ret)).To(Equal(2))
+				Expect([]byte(ret[0])[0]).To(Equal([]byte(ret[1])[0]))
+			}
+		})
 	})
 
 	Describe("ZSet Commands", func() {
@@ -1353,7 +1588,7 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				count, err := pool.ZRemRangeByRank("key", 1, 2, ).Result()
+				count, err := pool.ZRemRangeByRank("key", 1, 2).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(count).To(Equal(int64(2)))
 			}
