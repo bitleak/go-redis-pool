@@ -984,10 +984,8 @@ func (p *Pool) SDiffStore(destination string, keys ...string) *redis.IntCmd {
 		return conn.SDiffStore(destination, keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
-	if factory.isCrossMultiShards(destination, keys[0]) {
-		return newErrorIntCmd(errCrossMultiShards)
-	}
-	if factory.isCrossMultiShards(keys...) {
+
+	if factory.isCrossMultiShards(append(keys, destination)...) {
 		return newErrorIntCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(destination)
@@ -1013,10 +1011,7 @@ func (p *Pool) SInterStore(destination string, keys ...string) *redis.IntCmd {
 		return conn.SInterStore(destination, keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
-	if factory.isCrossMultiShards(destination, keys[0]) {
-		return newErrorIntCmd(errCrossMultiShards)
-	}
-	if factory.isCrossMultiShards(keys...) {
+	if factory.isCrossMultiShards(append(keys, destination)...) {
 		return newErrorIntCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(destination)
@@ -1119,10 +1114,7 @@ func (p *Pool) SUnionStore(destination string, keys ...string) *redis.IntCmd {
 		return conn.SUnionStore(destination, keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
-	if factory.isCrossMultiShards(destination, keys[0]) {
-		return newErrorIntCmd(errCrossMultiShards)
-	}
-	if factory.isCrossMultiShards(keys...) {
+	if factory.isCrossMultiShards(append(keys, destination)...) {
 		return newErrorIntCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(destination)
