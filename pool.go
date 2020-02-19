@@ -35,6 +35,18 @@ type ConnFactory interface {
 	close()
 }
 
+func newErrorStringIntMapCmd(err error) *redis.StringIntMapCmd {
+	cmd := &redis.StringIntMapCmd{}
+	cmd.SetErr(err)
+	return cmd
+}
+
+func newErrorBoolSliceCmd(err error) *redis.BoolSliceCmd {
+	cmd := &redis.BoolSliceCmd{}
+	cmd.SetErr(err)
+	return cmd
+}
+
 func newErrorIntCmd(err error) *redis.IntCmd {
 	cmd := &redis.IntCmd{}
 	cmd.SetErr(err)
@@ -125,6 +137,12 @@ func newErrorGeoLocationCmd(err error) *redis.GeoLocationCmd {
 	return cmd
 }
 
+func newErrorCmd(err error) *redis.Cmd {
+	cmd := &redis.Cmd{}
+	cmd.SetErr(err)
+	return cmd
+}
+
 type Pool struct {
 	connFactory ConnFactory
 }
@@ -155,6 +173,38 @@ func (p *Pool) Close() {
 
 func (p *Pool) WithMaster(key ...string) (*redis.Client, error) {
 	return p.connFactory.getMasterConn(key...)
+}
+
+func (p *Pool) Pipeline() (redis.Pipeliner, error) {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return nil, errShardPoolUnSupported
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.Pipeline(), nil
+}
+
+func (p *Pool) Pipelined(fn func(redis.Pipeliner) error) ([]redis.Cmder, error) {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return nil, errShardPoolUnSupported
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.Pipelined(fn)
+}
+
+func (p *Pool) TxPipeline() (redis.Pipeliner, error) {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return nil, errShardPoolUnSupported
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.TxPipeline(), nil
+}
+
+func (p *Pool) TxPipelined(fn func(redis.Pipeliner) error) ([]redis.Cmder, error) {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return nil, errShardPoolUnSupported
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.TxPipelined(fn)
 }
 
 func (p *Pool) Ping() *redis.StatusCmd {
@@ -496,6 +546,123 @@ func (p *Pool) Sort(key string, sort *redis.Sort) *redis.StringSliceCmd {
 		return newErrorStringSliceCmd(err)
 	}
 	return conn.Sort(key, sort)
+}
+
+func (p *Pool) SortStore(key, store string, sort *redis.Sort) *redis.IntCmd {
+	if _, ok := p.connFactory.(*HAConnFactory); ok {
+		conn, _ := p.connFactory.getMasterConn()
+		return conn.SortStore(key, store, sort)
+	}
+	factory := p.connFactory.(*ShardConnFactory)
+	if factory.isCrossMultiShards(key, store) {
+		return newErrorIntCmd(errCrossMultiShards)
+	}
+	conn, _ := p.connFactory.getSlaveConn(key)
+	return conn.SortStore(key, store, sort)
+}
+
+func (p *Pool) SortInterfaces(key string, sort *redis.Sort) *redis.SliceCmd {
+	conn, err := p.connFactory.getSlaveConn(key)
+	if err != nil {
+		return newErrorSliceCmd(err)
+	}
+	return conn.SortInterfaces(key, sort)
+}
+
+func (p *Pool) Eval(script string, keys []string, args ...interface{}) *redis.Cmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.Eval(script, keys, args...)
+}
+
+func (p *Pool) EvalSha(sha1 string, keys []string, args ...interface{}) *redis.Cmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.EvalSha(sha1, keys, args...)
+}
+
+func (p *Pool) ScriptExists(hashes ...string) *redis.BoolSliceCmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorBoolSliceCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.ScriptExists(hashes...)
+}
+
+func (p *Pool) ScriptFlush() *redis.StatusCmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorStatusCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.ScriptFlush()
+}
+
+func (p *Pool) ScriptKill() *redis.StatusCmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorStatusCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.ScriptKill()
+}
+
+func (p *Pool) ScriptLoad(script string) *redis.StringCmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorStringCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.ScriptLoad(script)
+}
+
+func (p *Pool) DebugObject(key string) *redis.StringCmd {
+	conn, err := p.connFactory.getSlaveConn(key)
+	if err != nil {
+		return newErrorStringCmd(err)
+	}
+	return conn.DebugObject(key)
+}
+
+func (p *Pool) MemoryUsage(key string, samples ...int) *redis.IntCmd {
+	conn, err := p.connFactory.getSlaveConn(key)
+	if err != nil {
+		return newErrorIntCmd(err)
+	}
+	return conn.MemoryUsage(key, samples...)
+}
+
+func (p *Pool) Publish(channel string, message interface{}) *(redis.IntCmd) {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorIntCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.Publish(channel, message)
+}
+
+func (p *Pool) PubSubChannels(pattern string) *redis.StringSliceCmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorStringSliceCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getSlaveConn()
+	return conn.PubSubChannels(pattern)
+}
+
+func (p *Pool) PubSubNumSub(channels ...string) *redis.StringIntMapCmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorStringIntMapCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getSlaveConn()
+	return conn.PubSubNumSub(channels...)
+}
+
+func (p *Pool) PubSubNumPat() *redis.IntCmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorIntCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getSlaveConn()
+	return conn.PubSubNumPat()
 }
 
 func (p *Pool) Type(key string) *redis.StatusCmd {
@@ -1483,4 +1650,28 @@ func (p *Pool) GeoHash(key string, members ...string) *redis.StringSliceCmd {
 		return newErrorStringSliceCmd(err)
 	}
 	return conn.GeoHash(key, members...)
+}
+
+func (p *Pool) PFAdd(key string, els ...interface{}) *redis.IntCmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorIntCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.PFAdd(key, els...)
+}
+
+func (p *Pool) PFCount(keys ...string) *redis.IntCmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorIntCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getSlaveConn()
+	return conn.PFCount(keys...)
+}
+
+func (p *Pool) PFMerge(dest string, keys ...string) *redis.StatusCmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorStatusCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.PFMerge(dest, keys...)
 }
