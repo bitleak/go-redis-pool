@@ -45,7 +45,7 @@ pool, err := pool.NewHA(&pool.HAConfig{
             "127.0.0.1:6381:200", // weight is 200
             "127.0.0.1:6382:300", // weigght is 300
         },
-        DistType: DistByWeight,
+        PollType: pool.PollByWeight,
 }
 ```
 

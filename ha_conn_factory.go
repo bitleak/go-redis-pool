@@ -11,12 +11,12 @@ import (
 )
 
 const (
-	// DistRandom selects the slave factory by random index
-	DistRandom = iota + 1
-	// DistByWeight selecst the slave factory by weight
-	DistByWeight
-	// DistByWeight selecst the slave factory by round robin
-	DistRR
+	// PollByRandom selects the slave factory by random index
+	PollByRandom = iota + 1
+	// PollByWeight selects the slave factory by weight
+	PollByWeight
+	// PollByRoundRobin selects the slave with round-robin order
+	PollByRoundRobin
 )
 
 // TODO: supports sentinel
@@ -26,7 +26,7 @@ type HAConfig struct {
 	Password         string
 	ReadonlyPassword string
 	Options          *redis.Options
-	DistType         int
+	PollType         int
 
 	weights []int64
 }
@@ -45,8 +45,8 @@ type HAConnFactory struct {
 func (cfg *HAConfig) init() error {
 	var err error
 
-	if cfg.DistType < DistRandom || cfg.DistType > DistRR {
-		cfg.DistType = DistRR
+	if cfg.PollType < PollByRandom || cfg.PollType > PollByRoundRobin {
+		cfg.PollType = PollByRoundRobin
 	}
 	if cfg.Options == nil {
 		cfg.Options = &redis.Options{}
@@ -94,7 +94,7 @@ func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
 		slaveOptions.Password = slavePassword
 		factory.slaves[i] = redis.NewClient(&slaveOptions)
 	}
-	if cfg.DistType == DistByWeight {
+	if cfg.PollType == PollByWeight {
 		factory.weightRanges = make([]int64, len(cfg.Slaves))
 		factory.weightRanges[0] = cfg.weights[0]
 		for i := 1; i < len(cfg.Slaves); i++ {
@@ -116,13 +116,13 @@ func (factory *HAConnFactory) getSlaveConn(key ...string) (*redis.Client, error)
 	if len(factory.slaves) == 0 {
 		return nil, errors.New("no alive slave")
 	}
-	switch factory.cfg.DistType {
-	case DistRandom:
+	switch factory.cfg.PollType {
+	case PollByRandom:
 		return factory.slaves[factory.rand.Intn(len(factory.slaves))], nil
-	case DistRR:
+	case PollByRoundRobin:
 		factory.ind = (factory.ind + 1) % len(factory.slaves)
 		return factory.slaves[factory.ind], nil
-	case DistByWeight:
+	case PollByWeight:
 		n := len(factory.slaves)
 		if n == 1 {
 			return factory.slaves[0], nil
