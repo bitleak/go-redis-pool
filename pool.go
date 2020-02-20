@@ -24,7 +24,7 @@ const (
 )
 
 var (
-	errWrongArguments       = errors.New("wrong number of arugments")
+	errWrongArguments       = errors.New("wrong number of arguments")
 	errShardPoolUnSupported = errors.New("shard pool didn't support the command")
 	errCrossMultiShards     = errors.New("cross multi shards was not allowed")
 )
