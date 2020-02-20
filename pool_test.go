@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/go-redis/redis/v7"
+	redis "github.com/go-redis/redis/v7"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -1379,11 +1379,11 @@ var _ = Describe("Pool", func() {
 
 				z, err := pool.ZPopMax("key").Result()
 				Expect(err).NotTo(HaveOccurred())
-				Expect(z).To(Equal([]redis.Z{{3, "three"}}))
+				Expect(z).To(Equal([]redis.Z{{Score: 3, Member: "three"}}))
 
 				z, err = pool.ZPopMax("key", 1).Result()
 				Expect(err).NotTo(HaveOccurred())
-				Expect(z).To(Equal([]redis.Z{{2, "two"}}))
+				Expect(z).To(Equal([]redis.Z{{Score: 2, Member: "two"}}))
 			}
 		})
 
@@ -1403,11 +1403,11 @@ var _ = Describe("Pool", func() {
 
 				z, err := pool.ZPopMin("key").Result()
 				Expect(err).NotTo(HaveOccurred())
-				Expect(z).To(Equal([]redis.Z{{1, "one"}}))
+				Expect(z).To(Equal([]redis.Z{{Score: 1, Member: "one"}}))
 
 				z, err = pool.ZPopMin("key").Result()
 				Expect(err).NotTo(HaveOccurred())
-				Expect(z).To(Equal([]redis.Z{{2, "two"}}))
+				Expect(z).To(Equal([]redis.Z{{Score: 2, Member: "two"}}))
 			}
 		})
 
@@ -1462,10 +1462,10 @@ var _ = Describe("Pool", func() {
 
 				l, err := pool.ZRangeWithScores("key", 0, -1).Result()
 				Expect(err).NotTo(HaveOccurred())
-				Expect(l[0]).To(Equal(redis.Z{1, "one"}))
-				Expect(l[1]).To(Equal(redis.Z{1, "uno"}))
-				Expect(l[2]).To(Equal(redis.Z{2, "two"}))
-				Expect(l[3]).To(Equal(redis.Z{3, "three"}))
+				Expect(l[0]).To(Equal(redis.Z{Score: 1, Member: "one"}))
+				Expect(l[1]).To(Equal(redis.Z{Score: 1, Member: "uno"}))
+				Expect(l[2]).To(Equal(redis.Z{Score: 2, Member: "two"}))
+				Expect(l[3]).To(Equal(redis.Z{Score: 3, Member: "three"}))
 			}
 		})
 
@@ -1666,7 +1666,10 @@ var _ = Describe("Pool", func() {
 
 				out, err := pool.ZRangeWithScores("out", 0, -1).Result()
 				Expect(err).NotTo(HaveOccurred())
-				Expect(out).To(Equal([]redis.Z{{5, "one"}, {10, "two"}}))
+				Expect(out).To(Equal([]redis.Z{
+					{Score: 5, Member: "one"},
+					{Score: 10, Member: "two"},
+				}))
 			}
 		})
 
@@ -1734,7 +1737,11 @@ var _ = Describe("Pool", func() {
 
 				out, err := pool.ZRangeWithScores("out", 0, -1).Result()
 				Expect(err).NotTo(HaveOccurred())
-				Expect(out).To(Equal([]redis.Z{{5, "one"}, {9, "three"}, {10, "two"}}))
+				Expect(out).To(Equal([]redis.Z{
+					{Score: 5, Member: "one"},
+					{Score: 9, Member: "three"},
+					{Score: 10, Member: "two"},
+				}))
 			}
 		})
 
