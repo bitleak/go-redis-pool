@@ -1,0 +1,35 @@
+  
+language: go
+
+git:
+  depth: 1
+
+env:
+  - GO111MODULE=on
+
+go:
+  - 1.12.x
+
+cache:
+  directories:
+    - /home/travis/gopath/pkg/mod
+    - /home/travis/.cache/go-build
+
+stages:
+  - lint   
+  - build
+  - test
+
+jobs:
+  include:
+    - stage: lint
+      name: lint the go files
+      script:
+        - make lint 
+    - stage: build
+      name: Build binary
+      script:
+        - make
+    - stage: test
+      script:
+        - make test
