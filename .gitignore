@@ -16,3 +16,10 @@
 
 # IDE
 .idea/
+
+# vim
+*.swp
+*.swo
+
+# make
+*.log
