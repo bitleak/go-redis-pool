@@ -14,7 +14,7 @@ func TestKetama(t *testing.T) {
 		server := &Server{Name: fmt.Sprintf("server%d", i), Weight: 1, Index: uint32(i - 1)}
 		servers = append(servers, server)
 	}
-	k := NewKetama(servers)
+	k := NewKetama(servers, nil)
 	m := make(map[uint32]int64)
 	for i := 0; i < 100000; i++ {
 		s := k.Dispatch("foo" + strconv.Itoa(i))
@@ -36,7 +36,7 @@ func TestKetamaSegfault(t *testing.T) {
 		{Name: "r01", Weight: 100, Index: 0},
 		{Name: "r02", Weight: 100, Index: 1},
 	}
-	k := NewKetama(servers)
+	k := NewKetama(servers, nil)
 
 	tests := []struct {
 		key  string

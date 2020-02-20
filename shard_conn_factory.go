@@ -5,7 +5,7 @@ import (
 	"hash/crc32"
 	"sync"
 
-	redis "github.com/go-redis/redis/v7"
+	"github.com/go-redis/redis/v7"
 	"github.com/meitu/go-redis-pool/hashkit"
 )
 
@@ -59,7 +59,7 @@ func NewShardConnFactory(cfg *ShardConfig) (*ShardConnFactory, error) {
 				Index:  uint32(idx),
 			})
 		}
-		factory.hash = hashkit.NewKetama(servers)
+		factory.hash = hashkit.NewKetama(servers, factory.cfg.HashFn)
 	}
 	return factory, nil
 }
