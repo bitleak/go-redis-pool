@@ -71,6 +71,7 @@ func (factory *ShardConnFactory) close() {
 }
 
 func (factory *ShardConnFactory) getShardIndex(key string) uint32 {
+	key = extractHashPrefix(key)
 	switch factory.cfg.DistributeType {
 	case DistributeByKetama:
 		return factory.hash.Dispatch(key)
