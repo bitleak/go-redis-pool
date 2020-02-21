@@ -9,6 +9,9 @@ func TestExtractHashPrefix(t *testing.T) {
 		"suffix{hash}{hash}": "hash",
 		"{hash}{hash}":       "hash",
 		"{prefix":            "{prefix",
+		"{}prefix":           "{}prefix",
+		"suffix{}":           "suffix{}",
+		"middle{}key":        "middle{}key",
 	}
 	for key, expected := range cases {
 		got := extractHashPrefix(key)
