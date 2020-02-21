@@ -13,7 +13,8 @@ type continuumPoint struct {
 }
 
 type Continuum struct {
-	ring continuumPoints
+	ring   continuumPoints
+	hashFn func(key []byte) uint32
 }
 
 type continuumPoints []continuumPoint
@@ -22,8 +23,16 @@ func (c continuumPoints) Less(i, j int) bool { return c[i].point < c[j].point }
 func (c continuumPoints) Len() int           { return len(c) }
 func (c continuumPoints) Swap(i, j int)      { c[i], c[j] = c[j], c[i] }
 
-func NewKetama(servers []*Server) *Continuum {
-	ketama := &Continuum{}
+func NewKetama(servers []*Server, hashFn func(key []byte) uint32) *Continuum {
+	ketama := &Continuum{
+		hashFn: hashFn,
+	}
+	if ketama.hashFn == nil {
+		ketama.hashFn = func(key []byte) uint32 {
+			digest := md5Digest(string(key))
+			return uint32(digest[3])<<24 | uint32(digest[2])<<16 | uint32(digest[1])<<8 | uint32(digest[0])
+		}
+	}
 	ketama.ring = ketama.build(servers)
 	return ketama
 }
@@ -32,9 +41,8 @@ func (c *Continuum) Dispatch(key string) uint32 {
 	if len(c.ring) == 0 {
 		return 0
 	}
-	digest := md5Digest(key)
-	hash := uint(digest[3])<<24 | uint(digest[2])<<16 | uint(digest[1])<<8 | uint(digest[0])
-	return c.ring[c.search(hash)].server.Index
+	h := uint(c.hashFn([]byte(key)))
+	return c.ring[c.search(h)].server.Index
 }
 
 func (c *Continuum) Rebuild(servers []*Server) {
