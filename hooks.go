@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v7"
 )
 
 type autoEjectHostHook struct {
@@ -29,6 +29,7 @@ func newAutoEjectHostHook(serverRetryTimeout time.Duration, serverFailureLimit i
 		afterReachFailureLimit: afterReachFailureLimit,
 		tryRejoin:              tryRejoin,
 	}
+	hook.startRetryTick()
 	return hook
 }
 
