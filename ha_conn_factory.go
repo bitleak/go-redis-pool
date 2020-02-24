@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	redis "github.com/go-redis/redis/v7"
+	"github.com/go-redis/redis/v7"
 )
 
 const (
@@ -28,18 +28,34 @@ type HAConfig struct {
 	Options          *redis.Options
 	PollType         int
 
+	AutoEjectHost      bool
+	ServerRetryTimeout time.Duration
+	ServerFailureLimit int32
+
 	weights []int64
 }
 
 // HAConnFactory impls the read/write splits between master and slaves
 type HAConnFactory struct {
-	cfg    *HAConfig
-	master *redis.Client
-	slaves []*redis.Client
+	cfg             *HAConfig
+	master          *redis.Client
+	slaves          []*hAClient
+	availableSlaves *clientPool
+}
 
+type hAClient struct {
+	*redis.Client
+	autoEjectHostHook *autoEjectHostHook
+}
+
+type clientPool struct {
 	ind          int
 	rand         *rand.Rand
 	weightRanges []int64
+	size         int
+	pollType     int
+
+	clients []*redis.Client
 }
 
 func (cfg *HAConfig) init() error {
@@ -70,11 +86,11 @@ func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
 	if cfg == nil {
 		return nil, errors.New("factory cfg shouldn't be empty")
 	}
-	cfg.init()
+	if err := cfg.init(); err != nil {
+		return nil, err
+	}
 
 	factory := new(HAConnFactory)
-	factory.ind = 0
-	factory.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 	factory.cfg = cfg
 	options := cfg.Options
 	options.Addr = cfg.Master
@@ -87,20 +103,14 @@ func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
 	if len(cfg.Slaves) == 0 {
 		cfg.Slaves = append(cfg.Slaves, cfg.Master)
 	}
-	factory.slaves = make([]*redis.Client, len(cfg.Slaves))
+	factory.slaves = make([]*hAClient, len(cfg.Slaves))
 	for i, slave := range cfg.Slaves {
 		slaveOptions := *options
 		slaveOptions.Addr = slave
 		slaveOptions.Password = slavePassword
-		factory.slaves[i] = redis.NewClient(&slaveOptions)
+		factory.slaves[i] = newHaClient(&slaveOptions, cfg, factory.refreshAvailableSlaves, factory.refreshAvailableSlaves)
 	}
-	if cfg.PollType == PollByWeight {
-		factory.weightRanges = make([]int64, len(cfg.Slaves))
-		factory.weightRanges[0] = cfg.weights[0]
-		for i := 1; i < len(cfg.Slaves); i++ {
-			factory.weightRanges[i] = factory.weightRanges[i-1] + cfg.weights[i]
-		}
-	}
+	factory.refreshAvailableSlaves()
 	return factory, nil
 }
 
@@ -113,34 +123,100 @@ func (factory *HAConnFactory) close() {
 
 // GetSlaveConnByKey get slave connection
 func (factory *HAConnFactory) getSlaveConn(key ...string) (*redis.Client, error) {
-	if len(factory.slaves) == 0 {
-		return nil, errors.New("no alive slave")
-	}
-	switch factory.cfg.PollType {
-	case PollByRandom:
-		return factory.slaves[factory.rand.Intn(len(factory.slaves))], nil
-	case PollByRoundRobin:
-		factory.ind = (factory.ind + 1) % len(factory.slaves)
-		return factory.slaves[factory.ind], nil
-	case PollByWeight:
-		n := len(factory.slaves)
-		if n == 1 {
-			return factory.slaves[0], nil
-		}
-		r := factory.rand.Int63n(factory.weightRanges[n-1])
-		for i, weightRange := range factory.weightRanges {
-			if r <= weightRange {
-				return factory.slaves[i], nil
-			}
-		}
-	default:
-		return nil, errors.New("unsupported distribution type")
-	}
-	// no reached
-	panic("failed to get slave conn")
+	return factory.availableSlaves.get(key...)
 }
 
 // GetMasterConnByKey get master connection
 func (factory *HAConnFactory) getMasterConn(key ...string) (*redis.Client, error) {
 	return factory.master, nil
+}
+
+func (factory *HAConnFactory) refreshAvailableSlaves() {
+	availables := make([]*redis.Client, 0)
+	for i := 0; i < len(factory.slaves); i++ {
+		if factory.slaves[i].isAvailable() {
+			availables = append(availables, factory.slaves[i].Client)
+		}
+	}
+	if factory.availableSlaves == nil || !factory.availableSlaves.clientsEqual(availables) {
+		factory.availableSlaves = newClientPool(availables, factory.cfg)
+	}
+}
+
+func newHaClient(options *redis.Options, cfg *HAConfig, afterReachFailureLimit, tryRejoin func()) *hAClient {
+	haClient := &hAClient{
+		Client: redis.NewClient(options),
+	}
+	if cfg.AutoEjectHost {
+		haClient.autoEjectHostHook = newAutoEjectHostHook(cfg.ServerRetryTimeout, cfg.ServerFailureLimit, afterReachFailureLimit, tryRejoin)
+	}
+	return haClient
+}
+
+func (client *hAClient) isAvailable() bool {
+	return client.autoEjectHostHook == nil || client.autoEjectHostHook.isHostAvailable()
+}
+
+func (client *hAClient) Close() error {
+	if client.autoEjectHostHook != nil {
+		client.autoEjectHostHook.close()
+	}
+	return client.Client.Close()
+}
+
+func newClientPool(clients []*redis.Client, cfg *HAConfig) *clientPool {
+	pool := &clientPool{
+		clients:  clients,
+		rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+		size:     len(clients),
+		pollType: cfg.PollType,
+	}
+	if pool.pollType == PollByWeight {
+		pool.weightRanges = make([]int64, len(cfg.Slaves))
+		pool.weightRanges[0] = cfg.weights[0]
+		for i := 1; i < len(cfg.Slaves); i++ {
+			pool.weightRanges[i] = pool.weightRanges[i-1] + cfg.weights[i]
+		}
+	}
+	return pool
+}
+
+func (pool *clientPool) get(key ...string) (*redis.Client, error) {
+	if pool.size == 0 {
+		return nil, errors.New("no alive clients")
+	}
+	if pool.size == 1 {
+		return pool.clients[0], nil
+	}
+
+	switch pool.pollType {
+	case PollByRandom:
+		return pool.clients[pool.rand.Intn(pool.size)], nil
+	case PollByRoundRobin:
+		pool.ind = (pool.ind + 1) % pool.size
+		return pool.clients[pool.ind], nil
+	case PollByWeight:
+		r := pool.rand.Int63n(pool.weightRanges[pool.size-1])
+		for i, weightRange := range pool.weightRanges {
+			if r <= weightRange {
+				return pool.clients[i], nil
+			}
+		}
+		// no reached
+		panic("failed to get available slave conn")
+	default:
+		return nil, errors.New("unsupported distribution type")
+	}
+}
+
+func (pool *clientPool) clientsEqual(list []*redis.Client) bool {
+	if pool.size != len(list) {
+		return false
+	}
+	for i := 0; i < pool.size; i++ {
+		if pool.clients[i] != list[i] {
+			return false
+		}
+	}
+	return true
 }
