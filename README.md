@@ -105,7 +105,7 @@ pool.Set("foo", "bar", 0)
 
 ```
 
-Shard pool use the `CRC32` as default hash function when sharding the key, you can overwrite the `HashFn` in config if wants to use other sharding hash function.
+Shard pool use the `CRC32` as default hash function when sharding the key, you can overwrite the `HashFn` in config if wants to use other sharding hash function. The distribution type supports `ketama` and `modular`, default is modular.
 
 ## Test
 
