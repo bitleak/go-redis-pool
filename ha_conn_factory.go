@@ -200,25 +200,31 @@ func newClientPool(cfg *HAConfig) *clientPool {
 }
 
 func (pool *clientPool) getConn(key ...string) (*redis.Client, error) {
-	n := len(pool.alives)
+	// the rebuild in other routine may replace the alives and weights in middle way,
+	// and may cause index of range panic if the alives was shink, so copy
+	// the reference to old alives here.
+	alives := pool.alives
+	weightRanges := pool.weightRanges
+
+	n := len(alives)
 	if n == 0 {
 		return nil, errors.New("no alive slaves")
 	}
 	if n == 1 {
-		return pool.alives[0].redisCli, nil
+		return alives[0].redisCli, nil
 	}
 
 	switch pool.pollType {
 	case PollByRandom:
-		return pool.alives[pool.rand.Intn(n)].redisCli, nil
+		return alives[pool.rand.Intn(n)].redisCli, nil
 	case PollByRoundRobin:
 		pool.ind = (pool.ind + 1) % n
-		return pool.alives[pool.ind].redisCli, nil
+		return alives[pool.ind].redisCli, nil
 	case PollByWeight:
-		r := pool.rand.Int63n(pool.weightRanges[n-1])
-		for i, weightRange := range pool.weightRanges {
+		r := pool.rand.Int63n(weightRanges[n-1])
+		for i, weightRange := range weightRanges {
 			if r <= weightRange {
-				return pool.alives[i].redisCli, nil
+				return alives[i].redisCli, nil
 			}
 		}
 
