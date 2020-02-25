@@ -1,4 +1,4 @@
-# go-redis-pool
+# go-redis-pool[![Build Status](https://travis-ci.org/meitu/go-redis-pool.svg?branch=master)](https://travis-ci.org/meitu/go-redis-pool) [![Go Report Card](https://goreportcard.com/badge/github.com/meitu/go-redis-pool)](https://goreportcard.com/report/github.com/meitu/go-redis-pool) 
 
 go-redis-pool was designed to implement the read/write split in Redis master-slave mode, and easy way to sharding the data.
 
