@@ -5,9 +5,10 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
-	"github.com/go-redis/redis/v7"
+	redis "github.com/go-redis/redis/v7"
 )
 
 const (
@@ -19,7 +20,6 @@ const (
 	PollByRoundRobin
 )
 
-// TODO: supports sentinel
 type HAConfig struct {
 	Master           string
 	Slaves           []string
@@ -29,33 +29,74 @@ type HAConfig struct {
 	PollType         int
 
 	AutoEjectHost      bool
-	ServerRetryTimeout time.Duration
 	ServerFailureLimit int32
+	ServerRetryTimeout time.Duration
 
 	weights []int64
 }
 
 // HAConnFactory impls the read/write splits between master and slaves
 type HAConnFactory struct {
-	cfg             *HAConfig
-	master          *redis.Client
-	slaves          []*hAClient
-	availableSlaves *clientPool
+	cfg    *HAConfig
+	master *redis.Client
+	slaves *clientPool
 }
 
-type hAClient struct {
-	*redis.Client
-	autoEjectHostHook *autoEjectHostHook
+type client struct {
+	redisCli *redis.Client
+
+	evicted       bool
+	failureCount  int32
+	weight        int64
+	lastEjectTime int64
 }
 
 type clientPool struct {
-	ind          int
-	rand         *rand.Rand
-	weightRanges []int64
-	size         int
-	pollType     int
+	pollType           int
+	autoEjectHost      bool
+	serverFailureLimit int32
+	serverRetryTimeout time.Duration
 
-	clients []*redis.Client
+	alives       []*client
+	slaves       []*client
+	weightRanges []int64
+
+	ind    int
+	rand   *rand.Rand
+	stopCh chan struct{}
+}
+
+func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
+	if cfg == nil {
+		return nil, errors.New("factory cfg shouldn't be empty")
+	}
+	if err := cfg.init(); err != nil {
+		return nil, err
+	}
+
+	factory := new(HAConnFactory)
+	factory.cfg = cfg
+	options := cfg.Options
+	options.Addr = cfg.Master
+	options.Password = cfg.Password
+	factory.master = redis.NewClient(options)
+	factory.slaves = newClientPool(cfg)
+	return factory, nil
+}
+
+func (factory *HAConnFactory) close() {
+	factory.master.Close()
+	factory.slaves.close()
+}
+
+// GetSlaveConnByKey get slave connection
+func (factory *HAConnFactory) getSlaveConn(key ...string) (*redis.Client, error) {
+	return factory.slaves.getConn(key...)
+}
+
+// GetMasterConnByKey get master connection
+func (factory *HAConnFactory) getMasterConn(key ...string) (*redis.Client, error) {
+	return factory.master, nil
 }
 
 func (cfg *HAConfig) init() error {
@@ -78,24 +119,40 @@ func (cfg *HAConfig) init() error {
 			}
 		}
 	}
+	if cfg.ServerRetryTimeout <= 0 {
+		cfg.ServerRetryTimeout = 5 * time.Second
+	}
+	if cfg.ServerRetryTimeout < 100*time.Millisecond {
+		cfg.ServerRetryTimeout = 100 * time.Millisecond
+	}
+	if cfg.ServerFailureLimit <= 0 {
+		cfg.ServerFailureLimit = 3
+	}
 	return nil
 }
 
-// NewHAConnFactory create new ha factory
-func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
-	if cfg == nil {
-		return nil, errors.New("factory cfg shouldn't be empty")
-	}
-	if err := cfg.init(); err != nil {
-		return nil, err
-	}
+func newClient(redisCli *redis.Client, weight int64) *client {
+	c := &client{
+		redisCli: redisCli,
+		weight:   weight,
 
-	factory := new(HAConnFactory)
-	factory.cfg = cfg
-	options := cfg.Options
-	options.Addr = cfg.Master
-	options.Password = cfg.Password
-	factory.master = redis.NewClient(options)
+		failureCount:  0,
+		lastEjectTime: 0,
+	}
+	redisCli.AddHook(newFailureHook(c))
+	return c
+}
+
+func (c *client) onFailure() {
+	atomic.AddInt32(&c.failureCount, 1)
+}
+
+func (c *client) onSuccess() {
+	atomic.StoreInt32(&c.failureCount, 0)
+}
+
+// NewHAConnFactory create new ha factory
+func newClientPool(cfg *HAConfig) *clientPool {
 	slavePassword := cfg.Password
 	if cfg.ReadonlyPassword != "" {
 		slavePassword = cfg.ReadonlyPassword
@@ -103,120 +160,146 @@ func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
 	if len(cfg.Slaves) == 0 {
 		cfg.Slaves = append(cfg.Slaves, cfg.Master)
 	}
-	factory.slaves = make([]*hAClient, len(cfg.Slaves))
+
+	pool := &clientPool{
+		pollType:           cfg.PollType,
+		autoEjectHost:      cfg.AutoEjectHost,
+		serverFailureLimit: cfg.ServerFailureLimit,
+		serverRetryTimeout: cfg.ServerRetryTimeout,
+
+		stopCh: make(chan struct{}, 0),
+		rand:   rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+	pool.slaves = make([]*client, len(cfg.Slaves))
+	options := cfg.Options
 	for i, slave := range cfg.Slaves {
 		slaveOptions := *options
 		slaveOptions.Addr = slave
 		slaveOptions.Password = slavePassword
-		factory.slaves[i] = newHaClient(&slaveOptions, cfg, factory.refreshAvailableSlaves, factory.refreshAvailableSlaves)
+		redisCli := redis.NewClient(&slaveOptions)
+		pool.slaves[i] = newClient(redisCli, cfg.weights[i])
 	}
-	factory.refreshAvailableSlaves()
-	return factory, nil
-}
-
-func (factory *HAConnFactory) close() {
-	factory.master.Close()
-	for _, slave := range factory.slaves {
-		slave.Close()
-	}
-}
-
-// GetSlaveConnByKey get slave connection
-func (factory *HAConnFactory) getSlaveConn(key ...string) (*redis.Client, error) {
-	return factory.availableSlaves.get(key...)
-}
-
-// GetMasterConnByKey get master connection
-func (factory *HAConnFactory) getMasterConn(key ...string) (*redis.Client, error) {
-	return factory.master, nil
-}
-
-func (factory *HAConnFactory) refreshAvailableSlaves() {
-	availables := make([]*redis.Client, 0)
-	for i := 0; i < len(factory.slaves); i++ {
-		if factory.slaves[i].isAvailable() {
-			availables = append(availables, factory.slaves[i].Client)
-		}
-	}
-	if factory.availableSlaves == nil || !factory.availableSlaves.clientsEqual(availables) {
-		factory.availableSlaves = newClientPool(availables, factory.cfg)
-	}
-}
-
-func newHaClient(options *redis.Options, cfg *HAConfig, afterReachFailureLimit, tryRejoin func()) *hAClient {
-	haClient := &hAClient{
-		Client: redis.NewClient(options),
-	}
-	if cfg.AutoEjectHost {
-		haClient.autoEjectHostHook = newAutoEjectHostHook(cfg.ServerRetryTimeout, cfg.ServerFailureLimit, afterReachFailureLimit, tryRejoin)
-	}
-	return haClient
-}
-
-func (client *hAClient) isAvailable() bool {
-	return client.autoEjectHostHook == nil || client.autoEjectHostHook.isHostAvailable()
-}
-
-func (client *hAClient) Close() error {
-	if client.autoEjectHostHook != nil {
-		client.autoEjectHostHook.close()
-	}
-	return client.Client.Close()
-}
-
-func newClientPool(clients []*redis.Client, cfg *HAConfig) *clientPool {
-	pool := &clientPool{
-		clients:  clients,
-		rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
-		size:     len(clients),
-		pollType: cfg.PollType,
-	}
+	pool.alives = pool.slaves
 	if pool.pollType == PollByWeight {
-		pool.weightRanges = make([]int64, len(cfg.Slaves))
-		pool.weightRanges[0] = cfg.weights[0]
-		for i := 1; i < len(cfg.Slaves); i++ {
-			pool.weightRanges[i] = pool.weightRanges[i-1] + cfg.weights[i]
+		weightRanges := make([]int64, len(pool.alives))
+		weightRanges[0] = pool.alives[0].weight
+		for i := 1; i < len(pool.alives); i++ {
+			weightRanges[i] = weightRanges[i-1] + pool.alives[i].weight
 		}
+		pool.weightRanges = weightRanges
 	}
+	go pool.detectFailureTick()
 	return pool
 }
 
-func (pool *clientPool) get(key ...string) (*redis.Client, error) {
-	if pool.size == 0 {
-		return nil, errors.New("no alive clients")
+func (pool *clientPool) getConn(key ...string) (*redis.Client, error) {
+	n := len(pool.alives)
+	if n == 0 {
+		return nil, errors.New("no alive slaves")
 	}
-	if pool.size == 1 {
-		return pool.clients[0], nil
+	if n == 1 {
+		return pool.alives[0].redisCli, nil
 	}
 
 	switch pool.pollType {
 	case PollByRandom:
-		return pool.clients[pool.rand.Intn(pool.size)], nil
+		return pool.alives[pool.rand.Intn(n)].redisCli, nil
 	case PollByRoundRobin:
-		pool.ind = (pool.ind + 1) % pool.size
-		return pool.clients[pool.ind], nil
+		pool.ind = (pool.ind + 1) % n
+		return pool.alives[pool.ind].redisCli, nil
 	case PollByWeight:
-		r := pool.rand.Int63n(pool.weightRanges[pool.size-1])
+		r := pool.rand.Int63n(pool.weightRanges[n-1])
 		for i, weightRange := range pool.weightRanges {
 			if r <= weightRange {
-				return pool.clients[i], nil
+				return pool.alives[i].redisCli, nil
 			}
 		}
+
 		// no reached
-		panic("failed to get available slave conn")
+		panic("failed to get slave conn")
 	default:
 		return nil, errors.New("unsupported distribution type")
 	}
 }
 
-func (pool *clientPool) clientsEqual(list []*redis.Client) bool {
-	if pool.size != len(list) {
+func (p *clientPool) rebuild() {
+	if !p.autoEjectHost {
+		return
+	}
+	newAlives := make([]*client, 0)
+	for i, slave := range p.slaves {
+		if slave.evicted {
+			continue
+		}
+		if slave.failureCount >= p.serverFailureLimit {
+			p.slaves[i].lastEjectTime = time.Now().UnixNano()
+			p.slaves[i].evicted = true
+			continue
+		}
+		newAlives = append(newAlives, slave)
+	}
+	if p.alivesEqual(newAlives) {
+		return
+	}
+
+	if p.pollType == PollByWeight {
+		weightRanges := make([]int64, len(newAlives))
+		if len(newAlives) >= 1 {
+			weightRanges[0] = newAlives[0].weight
+			for i := 1; i < len(newAlives); i++ {
+				weightRanges[i] = weightRanges[i-1] + newAlives[i].weight
+			}
+		}
+		p.weightRanges = weightRanges
+	}
+	p.alives = newAlives
+}
+
+func (p *clientPool) alivesEqual(newAlives []*client) bool {
+	if len(p.alives) != len(newAlives) {
 		return false
 	}
-	for i := 0; i < pool.size; i++ {
-		if pool.clients[i] != list[i] {
+	for i, alive := range newAlives {
+		if alive != p.alives[i] {
 			return false
 		}
 	}
 	return true
+}
+
+func (p *clientPool) detectFailureTick() {
+	interval := time.Second
+	if p.serverRetryTimeout < time.Second {
+		interval = p.serverRetryTimeout / 2
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			if p.autoEjectHost && len(p.slaves) > 1 {
+				now := time.Now().UnixNano()
+				for i, slave := range p.slaves {
+					elapsed := time.Duration(now-slave.lastEjectTime) / time.Millisecond
+					if slave.evicted &&
+						elapsed >= p.serverRetryTimeout/time.Millisecond &&
+						slave.failureCount >= p.serverFailureLimit {
+						// noly allow to retry once after evicted
+						p.slaves[i].failureCount = p.serverFailureLimit - 1
+						p.slaves[i].evicted = false
+					}
+				}
+				p.rebuild()
+			}
+		}
+	}
+}
+
+func (p *clientPool) close() {
+	for _, slave := range p.slaves {
+		slave.redisCli.Close()
+	}
 }
