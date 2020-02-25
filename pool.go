@@ -321,7 +321,10 @@ func (p *Pool) MGet(keys ...string) ([]interface{}, error) {
 	}
 
 	fn := func(factory *ShardConnFactory, keyList ...string) redis.Cmder {
-		conn, _ := factory.getSlaveConn(keyList[0])
+		conn, err := factory.getSlaveConn(keyList[0])
+		if err != nil {
+			return newErrorCmd(err)
+		}
 		return conn.MGet(keyList...)
 	}
 
@@ -457,7 +460,10 @@ func (p *Pool) Exists(keys ...string) (int64, error) {
 	}
 
 	fn := func(factory *ShardConnFactory, keyList ...string) redis.Cmder {
-		conn, _ := factory.getSlaveConn(keyList[0])
+		conn, err := factory.getSlaveConn(keyList[0])
+		if err != nil {
+			return newErrorCmd(err)
+		}
 		return conn.Exists(keyList...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
@@ -557,7 +563,10 @@ func (p *Pool) SortStore(key, store string, sort *redis.Sort) *redis.IntCmd {
 	if factory.isCrossMultiShards(key, store) {
 		return newErrorIntCmd(errCrossMultiShards)
 	}
-	conn, _ := p.connFactory.getSlaveConn(key)
+	conn, err := p.connFactory.getSlaveConn(key)
+	if err != nil {
+		return newErrorIntCmd(err)
+	}
 	return conn.SortStore(key, store, sort)
 }
 
@@ -645,7 +654,10 @@ func (p *Pool) PubSubChannels(pattern string) *redis.StringSliceCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorStringSliceCmd(errShardPoolUnSupported)
 	}
-	conn, _ := p.connFactory.getSlaveConn()
+	conn, err := p.connFactory.getSlaveConn()
+	if err != nil {
+		return newErrorStringSliceCmd(err)
+	}
 	return conn.PubSubChannels(pattern)
 }
 
@@ -653,7 +665,10 @@ func (p *Pool) PubSubNumSub(channels ...string) *redis.StringIntMapCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorStringIntMapCmd(errShardPoolUnSupported)
 	}
-	conn, _ := p.connFactory.getSlaveConn()
+	conn, err := p.connFactory.getSlaveConn()
+	if err != nil {
+		return newErrorStringIntMapCmd(err)
+	}
 	return conn.PubSubNumSub(channels...)
 }
 
@@ -661,7 +676,10 @@ func (p *Pool) PubSubNumPat() *redis.IntCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorIntCmd(errShardPoolUnSupported)
 	}
-	conn, _ := p.connFactory.getSlaveConn()
+	conn, err := p.connFactory.getSlaveConn()
+	if err != nil {
+		return newErrorIntCmd(err)
+	}
 	return conn.PubSubNumPat()
 }
 
@@ -1134,14 +1152,20 @@ func (p *Pool) SCard(key string) *redis.IntCmd {
 
 func (p *Pool) SDiff(keys ...string) *redis.StringSliceCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
-		conn, _ := p.connFactory.getSlaveConn()
+		conn, err := p.connFactory.getSlaveConn()
+		if err != nil {
+			return newErrorStringSliceCmd(err)
+		}
 		return conn.SDiff(keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(keys...) {
 		return newErrorStringSliceCmd(errCrossMultiShards)
 	}
-	conn, _ := p.connFactory.getSlaveConn(keys[0])
+	conn, err := p.connFactory.getSlaveConn(keys[0])
+	if err != nil {
+		return newErrorStringSliceCmd(err)
+	}
 	return conn.SDiff(keys...)
 }
 
@@ -1161,14 +1185,20 @@ func (p *Pool) SDiffStore(destination string, keys ...string) *redis.IntCmd {
 
 func (p *Pool) SInter(keys ...string) *redis.StringSliceCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
-		conn, _ := p.connFactory.getSlaveConn()
+		conn, err := p.connFactory.getSlaveConn()
+		if err != nil {
+			return newErrorStringSliceCmd(err)
+		}
 		return conn.SInter(keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(keys...) {
 		return newErrorStringSliceCmd(errCrossMultiShards)
 	}
-	conn, _ := p.connFactory.getSlaveConn(keys[0])
+	conn, err := p.connFactory.getSlaveConn(keys[0])
+	if err != nil {
+		return newErrorStringSliceCmd(err)
+	}
 	return conn.SInter(keys...)
 }
 
@@ -1264,14 +1294,20 @@ func (p *Pool) SRem(key string, members ...interface{}) *redis.IntCmd {
 
 func (p *Pool) SUnion(keys ...string) *redis.StringSliceCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
-		conn, _ := p.connFactory.getSlaveConn()
+		conn, err := p.connFactory.getSlaveConn()
+		if err != nil {
+			return newErrorStringSliceCmd(err)
+		}
 		return conn.SUnion(keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(keys...) {
 		return newErrorStringSliceCmd(errCrossMultiShards)
 	}
-	conn, _ := p.connFactory.getSlaveConn(keys[0])
+	conn, err := p.connFactory.getSlaveConn(keys[0])
+	if err != nil {
+		return newErrorStringSliceCmd(err)
+	}
 	return conn.SUnion(keys...)
 }
 
@@ -1664,7 +1700,10 @@ func (p *Pool) PFCount(keys ...string) *redis.IntCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorIntCmd(errShardPoolUnSupported)
 	}
-	conn, _ := p.connFactory.getSlaveConn()
+	conn, err := p.connFactory.getSlaveConn()
+	if err != nil {
+		return newErrorIntCmd(err)
+	}
 	return conn.PFCount(keys...)
 }
 
