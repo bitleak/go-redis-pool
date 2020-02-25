@@ -21,12 +21,12 @@ const (
 )
 
 type HAConfig struct {
-	Master           string
-	Slaves           []string
-	Password         string
-	ReadonlyPassword string
-	Options          *redis.Options
-	PollType         int
+	Master           string         // the address of the master, e.g. "127.0.0.1:6379"
+	Slaves           []string       // list of slaves, e.g. ["127.0.0.1:6379", "127.0.0.1:6380"]
+	Password         string         // the password of the master
+	ReadonlyPassword string         // the passsword of slaves
+	Options          *redis.Options // redis options
+	PollType         int            // the slave polling type
 
 	AutoEjectHost      bool          // eject the failure host or not
 	ServerFailureLimit int32         // eject if reached `ServerFailureLimit` times of failure

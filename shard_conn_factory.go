@@ -5,7 +5,7 @@ import (
 	"hash/crc32"
 	"sync"
 
-	"github.com/go-redis/redis/v7"
+	redis "github.com/go-redis/redis/v7"
 	"github.com/meitu/go-redis-pool/hashkit"
 )
 
@@ -23,7 +23,7 @@ var (
 
 type ShardConfig struct {
 	Shards         []*HAConfig
-	DistributeType int
+	DistributeType int // distribution type of the shards, supports `DistributeByModular` or `DistributeByKetama`
 	HashFn         func(key []byte) uint32
 }
 

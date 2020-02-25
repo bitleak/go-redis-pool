@@ -10,7 +10,7 @@ func main() {
 	pool, err := pool.NewShard(&pool.ShardConfig{
 		Shards: []*pool.HAConfig{
 			// shard 1
-			&pool.HAConfig{
+			{
 				Master: "127.0.0.1:6379",
 				Slaves: []string{
 					"127.0.0.1:6380",
@@ -21,7 +21,7 @@ func main() {
 			},
 
 			// shard 2
-			&pool.HAConfig{
+			{
 				Master: "127.0.0.1:6382",
 				Slaves: []string{
 					"127.0.0.1:6383",
