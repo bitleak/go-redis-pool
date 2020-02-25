@@ -28,9 +28,10 @@ type HAConfig struct {
 	Options          *redis.Options
 	PollType         int
 
-	AutoEjectHost      bool
-	ServerFailureLimit int32
-	ServerRetryTimeout time.Duration
+	AutoEjectHost      bool          // eject the failure host or not
+	ServerFailureLimit int32         // eject if reached `ServerFailureLimit` times of failure
+	ServerRetryTimeout time.Duration // retry the ejected host after `ServerRetryTimeout`
+	MinServerNum       int           // reserved the min server
 
 	weights []int64
 }
@@ -56,6 +57,7 @@ type clientPool struct {
 	autoEjectHost      bool
 	serverFailureLimit int32
 	serverRetryTimeout time.Duration
+	minServerNum       int
 
 	alives       []*client
 	slaves       []*client
@@ -128,6 +130,10 @@ func (cfg *HAConfig) init() error {
 	if cfg.ServerFailureLimit <= 0 {
 		cfg.ServerFailureLimit = 3
 	}
+	// slaves may be empty and make the master as slave
+	if cfg.MinServerNum != 1 && cfg.MinServerNum >= len(cfg.Slaves) {
+		return errors.New("config MinSererNum should be smaller than the slave num")
+	}
 	return nil
 }
 
@@ -166,6 +172,7 @@ func newClientPool(cfg *HAConfig) *clientPool {
 		autoEjectHost:      cfg.AutoEjectHost,
 		serverFailureLimit: cfg.ServerFailureLimit,
 		serverRetryTimeout: cfg.ServerRetryTimeout,
+		minServerNum:       cfg.MinServerNum,
 
 		stopCh: make(chan struct{}, 0),
 		rand:   rand.New(rand.NewSource(time.Now().UnixNano())),
@@ -240,6 +247,20 @@ func (p *clientPool) rebuild() {
 	}
 	if p.alivesEqual(newAlives) {
 		return
+	}
+
+	if p.minServerNum > 0 && len(newAlives) < p.minServerNum {
+		n := len(p.slaves)
+		ind := p.rand.Intn(n)
+		for i := ind; len(newAlives) < p.minServerNum; i++ {
+			i = i % n
+			if p.slaves[i].evicted {
+				newAlives = append(newAlives, p.slaves[i])
+			}
+			if (i+1)%n == ind {
+				break
+			}
+		}
 	}
 
 	if p.pollType == PollByWeight {

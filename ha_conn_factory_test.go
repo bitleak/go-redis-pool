@@ -80,4 +80,24 @@ func TestClientPool(t *testing.T) {
 		_, err = p.getConn()
 		Expect(err).NotTo(Equal(HaveOccurred()))
 	})
+
+	It("min server num", func() {
+		cfg := &HAConfig{
+			Master:             "addr:0",
+			Slaves:             []string{"addr:0:100", "addr:0:200", "addr:0:300"},
+			AutoEjectHost:      true,
+			ServerRetryTimeout: 100 * time.Millisecond,
+			ServerFailureLimit: 3,
+			PollType:           PollByWeight,
+			MinServerNum:       2,
+		}
+		cfg.init()
+		p := newClientPool(cfg)
+		time.Sleep(120 * time.Millisecond)
+		Expect(p.alives).To(Equal(p.slaves))
+		p.slaves[0].failureCount = p.serverFailureLimit
+		p.slaves[1].failureCount = p.serverFailureLimit
+		time.Sleep(120 * time.Millisecond)
+		Expect(len(p.alives)).To(Equal(p.minServerNum))
+	})
 }

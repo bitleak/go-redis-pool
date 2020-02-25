@@ -51,6 +51,26 @@ pool, err := pool.NewHA(&pool.HAConfig{
 
 The first slave would serve 1/6 reqeusts, and second slave would serve 2/6, last one would serve 3/6. 
 
+##### Auto Eject The Failure Host 
+
+```
+pool, err := pool.NewHA(&pool.HAConfig{
+        Master: "127.0.0.1:6379",
+        Slaves: []string{
+            "127.0.0.1:6380",  // default weight is 100 if missing
+            "127.0.0.1:6381:200", // weight is 200
+            "127.0.0.1:6382:300", // weigght is 300
+        },
+
+        AutoEjectHost: true,
+        ServerFailureLimit: 3,
+        ServerRetryTimeout: 5 * time.Second,
+        MinServerNum: 2,
+        })
+```
+
+The pool would evict the host if reached `ServerFailureLimit` times of failure and retry the host after `ServerRetryTimeout`. The
+`MinServerNum` was used to avoid evicting too many and would overrun other alive servers. 
 
 #### Setup The Sharding Pool
 
