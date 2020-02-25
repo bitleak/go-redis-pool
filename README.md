@@ -13,6 +13,8 @@ go get github.com/meitu/go-redis-pool
 
 ## Quick Start
 
+API documentation and examples are available via [godoc](https://godoc.org/github.com/meitu/go-redis-pool)
+
 ### Setup The Master-Slave Pool
 
 ```go
@@ -46,7 +48,7 @@ pool, err := pool.NewHA(&pool.HAConfig{
             "127.0.0.1:6382:300", // weigght is 300
         },
         PollType: pool.PollByWeight,
-}
+})
 ```
 
 The first slave would serve 1/6 reqeusts, and second slave would serve 2/6, last one would serve 3/6. 
@@ -66,7 +68,7 @@ pool, err := pool.NewHA(&pool.HAConfig{
         ServerFailureLimit: 3,
         ServerRetryTimeout: 5 * time.Second,
         MinServerNum: 2,
-        })
+})
 ```
 
 The pool would evict the host if reached `ServerFailureLimit` times of failure and retry the host after `ServerRetryTimeout`. The
@@ -98,7 +100,7 @@ pool, err := pool.NewShard(&pool.ShardConfig{
             Password: "", // set master password
             ReadonlyPassword: "", // use password if no set
         },
-    }
+    },
 })
 
 pool.Set("foo", "bar", 0)
