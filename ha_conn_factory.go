@@ -38,7 +38,7 @@ type HAConfig struct {
 // HAConnFactory impls the read/write splits between master and slaves
 type HAConnFactory struct {
 	cfg    *HAConfig
-	master *redis.Client
+	master *client
 	slaves *clientPool
 }
 
@@ -79,13 +79,13 @@ func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
 	options := cfg.Options
 	options.Addr = cfg.Master
 	options.Password = cfg.Password
-	factory.master = redis.NewClient(options)
+	factory.master = newClient(redis.NewClient(options), 0)
 	factory.slaves = newClientPool(cfg)
 	return factory, nil
 }
 
 func (factory *HAConnFactory) close() {
-	factory.master.Close()
+	factory.master.redisCli.Close()
 	factory.slaves.close()
 }
 
@@ -96,7 +96,7 @@ func (factory *HAConnFactory) getSlaveConn(key ...string) (*redis.Client, error)
 
 // GetMasterConnByKey get master connection
 func (factory *HAConnFactory) getMasterConn(key ...string) (*redis.Client, error) {
-	return factory.master, nil
+	return factory.master.redisCli, nil
 }
 
 func (cfg *HAConfig) init() error {
