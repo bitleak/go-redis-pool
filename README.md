@@ -1,4 +1,6 @@
-# go-redis-pool[![Build Status](https://travis-ci.org/meitu/go-redis-pool.svg?branch=master)](https://travis-ci.org/meitu/go-redis-pool) [![Go Report Card](https://goreportcard.com/badge/github.com/meitu/go-redis-pool)](https://goreportcard.com/report/github.com/meitu/go-redis-pool) 
+# go-redis-pool
+[![Build Status](https://travis-ci.org/meitu/go-redis-pool.svg?branch=master)](https://travis-ci.org/meitu/go-redis-pool) [![Go Report Card](https://goreportcard.com/badge/github.com/meitu/go-redis-pool)](https://goreportcard.com/report/github.com/meitu/go-redis-pool) [![Coverage Status](https://coveralls.io/repos/github/meitu/go-redis-pool/badge.svg?branch=add-coverage-reports)](https://coveralls.io/github/meitu/go-redis-pool?branch=add-coverage-reports) [![GitHub release](https://img.shields.io/github/tag/meitu/go-redis-pool.svg?label=release)](https://github.com/meitu/go-redis-pool/releases) [![GitHub release date](https://img.shields.io/github/release-date/meitu/go-redis-pool.svg)](https://github.com/meitu/go-redis-pool/releases) [![LICENSE](https://img.shields.io/github/license/meitu/go-redis-pool.svg)](https://github.com/meitu/go-redis-pool/blob/master/LICENSE) [![GoDoc](https://img.shields.io/badge/Godoc-reference-blue.svg)](https://godoc.org/github.com/meitu/go-redis-pool)
+
 
 go-redis-pool was designed to implement the read/write split in Redis master-slave mode, and easy way to sharding the data.
 

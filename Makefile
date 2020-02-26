@@ -12,6 +12,11 @@ test: setup-redis
 	go test
 	@cd scripts/redis && docker-compose down && cd ../..
 
+coverage: setup-redis
+	go test -v -covermode=count -coverprofile=coverage.out
+	$(HOME)/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $(COVERAGE_TOKEN)
+	@cd scripts/redis && docker-compose down && cd ../..
+
 lint:
 	@rm -rf lint.log
 	@printf $(CCCOLOR)"Checking format...\n"$(ENDCOLOR)
