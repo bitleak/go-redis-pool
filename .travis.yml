@@ -10,6 +10,12 @@ env:
 go:
   - 1.12.x
 
+before_install:
+    - go get github.com/mattn/goveralls
+
+script:
+    goveralls -service=travis-ci
+
 cache:
   directories:
     - /home/travis/gopath/pkg/mod
