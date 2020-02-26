@@ -326,6 +326,7 @@ func (p *clientPool) detectFailureTick() {
 }
 
 func (p *clientPool) close() {
+	close(p.stopCh)
 	for _, slave := range p.slaves {
 		slave.redisCli.Close()
 	}
