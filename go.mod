@@ -1,4 +1,4 @@
-module github.com/meitu/go-redis-pool
+module github.com/bitleak/go-redis-pool
 
 go 1.13
 
