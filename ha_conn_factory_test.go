@@ -9,12 +9,9 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("clieint pool", func() {
-
-})
+var _ = Describe("client pool", func() {})
 
 func TestClientPool(t *testing.T) {
-
 	It("eject/rejoin host", func() {
 		cfg := &HAConfig{
 			Master:             "addr:0",
@@ -23,7 +20,7 @@ func TestClientPool(t *testing.T) {
 			ServerRetryTimeout: 100 * time.Millisecond,
 			ServerFailureLimit: 3,
 		}
-		cfg.init()
+		_ = cfg.init()
 		p := newClientPool(cfg)
 
 		Expect(p.alives).To(Equal(p.slaves))
@@ -45,7 +42,7 @@ func TestClientPool(t *testing.T) {
 			ServerRetryTimeout: 100 * time.Millisecond,
 			ServerFailureLimit: 3,
 		}
-		cfg.init()
+		_ = cfg.init()
 		p := newClientPool(cfg)
 
 		Expect(p.alives).To(Equal(p.slaves))
@@ -66,7 +63,7 @@ func TestClientPool(t *testing.T) {
 			ServerFailureLimit: 3,
 			PollType:           PollByWeight,
 		}
-		cfg.init()
+		_ = cfg.init()
 		p := newClientPool(cfg)
 		for i := range p.slaves {
 			p.slaves[i].failureCount = p.serverFailureLimit
@@ -91,7 +88,7 @@ func TestClientPool(t *testing.T) {
 			PollType:           PollByWeight,
 			MinServerNum:       2,
 		}
-		cfg.init()
+		_ = cfg.init()
 		p := newClientPool(cfg)
 		time.Sleep(120 * time.Millisecond)
 		Expect(p.alives).To(Equal(p.slaves))
