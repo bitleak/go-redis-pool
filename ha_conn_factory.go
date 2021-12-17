@@ -110,6 +110,9 @@ func (cfg *HAConfig) init() error {
 	if cfg.Options == nil {
 		cfg.Options = &redis.Options{}
 	}
+	if len(cfg.Slaves) == 0 {
+		cfg.Slaves = append(cfg.Slaves, cfg.Master)
+	}
 	cfg.weights = make([]int64, len(cfg.Slaves))
 	for i, slave := range cfg.Slaves {
 		elems := strings.Split(slave, ":")
@@ -162,9 +165,6 @@ func newClientPool(cfg *HAConfig) *clientPool {
 	slavePassword := cfg.Password
 	if cfg.ReadonlyPassword != "" {
 		slavePassword = cfg.ReadonlyPassword
-	}
-	if len(cfg.Slaves) == 0 {
-		cfg.Slaves = append(cfg.Slaves, cfg.Master)
 	}
 
 	pool := &clientPool{

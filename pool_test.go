@@ -1,7 +1,10 @@
 package pool
 
 import (
+	"context"
+	"errors"
 	"math"
+	"sort"
 	"time"
 
 	redis "github.com/go-redis/redis/v7"
@@ -56,7 +59,6 @@ var _ = Describe("Pool", func() {
 	})
 
 	Describe("Commands", func() {
-
 		It("ping", func() {
 			for _, pool := range pools {
 				_, err := pool.Ping().Result()
@@ -1139,7 +1141,6 @@ var _ = Describe("Pool", func() {
 	})
 
 	Describe("ZSet Commands", func() {
-
 		It("ZAdd/ZScore", func() {
 			for _, pool := range pools {
 				_, err := pool.ZAdd("key", &redis.Z{
@@ -1775,6 +1776,68 @@ var _ = Describe("Pool", func() {
 				Weights: []float64{2, 3},
 			}).Result()
 			Expect(err).To(Equal(errCrossMultiShards))
+		})
+	})
+})
+
+var _ = Describe("Pool_GD", func() {
+	var shardPool *Pool
+	var err error
+	var pools []*Pool
+
+	BeforeEach(func() {
+		haConfig := &HAConfig{
+			Master: "127.0.0.1:8379",
+		}
+		haConfig1 := &HAConfig{
+			Master: "127.0.0.1:8384",
+		}
+
+		shardPool, err = NewShard(&ShardConfig{
+			Shards: []*HAConfig{
+				haConfig,
+				haConfig1,
+			},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		shards := shardPool.connFactory.(*ShardConnFactory).shards
+		for _, shard := range shards {
+			master, _ := shard.getMasterConn()
+			if master.Options().Addr == "127.0.0.1:8384" {
+				master.Shutdown()
+			} else {
+				Expect(master.FlushDB().Err()).NotTo(HaveOccurred())
+			}
+		}
+		pools = []*Pool{shardPool}
+	})
+
+	AfterEach(func() {
+		shardPool.Close()
+	})
+
+	Describe("Commands", func() {
+		It("gd", func() {
+			kvs := []string{"a3", "a3", "b3", "b3", "c3", "c3", "d3", "d3"}
+			keys := make([]string, 0)
+			for i := 0; i < len(kvs); i += 2 {
+				keys = append(keys, kvs[i])
+			}
+			for _, pool := range pools {
+				statuses := pool.MSetWithGD(kvs)
+				time.Sleep(10 * time.Millisecond)
+				sort.Slice(statuses, func(i, j int) bool {
+					return statuses[i].Err() == nil
+				})
+				Expect(statuses[0].Err()).NotTo(HaveOccurred())
+				Expect(statuses[1].Err()).To(Equal(errors.New("EOF")))
+				mgetKeys := append(keys, "e3")
+				vals, err := pool.MGetWithGD(context.Background(), mgetKeys...)
+				time.Sleep(10 * time.Millisecond)
+				Expect(err).To(Equal(errors.New("EOF")))
+				Expect(vals).To(Equal([]interface{}{nil, "b3", nil, "d3", nil}))
+				pool.Del(keys...)
+			}
 		})
 	})
 })

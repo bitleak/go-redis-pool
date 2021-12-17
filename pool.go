@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -167,6 +168,14 @@ func NewShard(cfg *ShardConfig) (*Pool, error) {
 	}, nil
 }
 
+func (p *Pool) Stats() (*redis.PoolStats, error) {
+	conn, err := p.connFactory.getMasterConn()
+	if err != nil {
+		return nil, err
+	}
+	return conn.PoolStats(), nil
+}
+
 func (p *Pool) Close() {
 	p.connFactory.close()
 }
@@ -314,7 +323,8 @@ func (p *Pool) Touch(keys ...string) (int64, error) {
 	return factory.doMultiIntCommand(fn, keys...)
 }
 
-func (p *Pool) MGet(keys ...string) ([]interface{}, error) {
+// MGetWithGD is like MGet but returns all the values that it managed to get
+func (p *Pool) MGetWithGD(ctx context.Context, keys ...string) ([]interface{}, error) {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
 		return conn.MGet(keys...).Result()
@@ -325,16 +335,20 @@ func (p *Pool) MGet(keys ...string) ([]interface{}, error) {
 		if err != nil {
 			return newErrorCmd(err)
 		}
-		return conn.MGet(keyList...)
+		return conn.WithContext(ctx).MGet(keyList...)
 	}
 
 	factory := p.connFactory.(*ShardConnFactory)
 	results := factory.doMultiKeys(fn, keys...)
 	keyVals := make(map[string]interface{}, 0)
+	var firstErr error
 	for _, result := range results {
 		vals, err := result.(*redis.SliceCmd).Result()
 		if err != nil {
-			return nil, err
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 		for i, val := range vals {
 			args := result.Args()
@@ -347,6 +361,14 @@ func (p *Pool) MGet(keys ...string) ([]interface{}, error) {
 		if val, ok := keyVals[key]; ok {
 			vals[i] = val
 		}
+	}
+	return vals, firstErr
+}
+
+func (p *Pool) MGet(keys ...string) ([]interface{}, error) {
+	vals, err := p.MGetWithGD(context.Background(), keys...)
+	if err != nil {
+		return nil, err
 	}
 	return vals, nil
 }
@@ -371,25 +393,22 @@ func appendArgs(dst, src []interface{}) []interface{} {
 	return dst
 }
 
-// MSet is like Set but accepts multiple values:
-//   - MSet("key1", "value1", "key2", "value2")
-//   - MSet([]string{"key1", "value1", "key2", "value2"})
-//   - MSet(map[string]interface{}{"key1": "value1", "key2": "value2"})
-func (p *Pool) MSet(values ...interface{}) *redis.StatusCmd {
+// MSetWithGD is like MSet but gives the result for each group of keys
+func (p *Pool) MSetWithGD(values ...interface{}) []*redis.StatusCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.MSet(values...)
+		return []*redis.StatusCmd{conn.MSet(values...)}
 	}
 
 	args := make([]interface{}, 0, len(values))
 	args = appendArgs(args, values)
 	if len(args) == 0 || len(args)%2 != 0 {
-		return newErrorStatusCmd(errWrongArguments)
+		return []*redis.StatusCmd{newErrorStatusCmd(errWrongArguments)}
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	index2Values := make(map[uint32][]interface{})
 	for i := 0; i < len(args); i += 2 {
-		ind := factory.cfg.HashFn([]byte(fmt.Sprint(args[i]))) % uint32(len(factory.shards))
+		ind := factory.getShardIndex(fmt.Sprint(args[i]))
 		if _, ok := index2Values[ind]; !ok {
 			index2Values[ind] = make([]interface{}, 0)
 		}
@@ -398,7 +417,7 @@ func (p *Pool) MSet(values ...interface{}) *redis.StatusCmd {
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var result *redis.StatusCmd
+	var result []*redis.StatusCmd
 	for ind, vals := range index2Values {
 		wg.Add(1)
 		conn, _ := factory.shards[ind].getMasterConn()
@@ -406,13 +425,26 @@ func (p *Pool) MSet(values ...interface{}) *redis.StatusCmd {
 			defer wg.Done()
 			status := conn.MSet(vals...)
 			mu.Lock()
-			if result == nil || status.Err() != nil {
-				result = status
-			}
+			result = append(result, status)
 			mu.Unlock()
 		}(conn, vals...)
 	}
 	wg.Wait()
+	return result
+}
+
+// MSet is like Set but accepts multiple values:
+//   - MSet("key1", "value1", "key2", "value2")
+//   - MSet([]string{"key1", "value1", "key2", "value2"})
+//   - MSet(map[string]interface{}{"key1": "value1", "key2": "value2"})
+func (p *Pool) MSet(values ...interface{}) *redis.StatusCmd {
+	var result *redis.StatusCmd
+	statuses := p.MSetWithGD(values...)
+	for _, status := range statuses {
+		if result == nil || status.Err() != nil {
+			result = status
+		}
+	}
 	return result
 }
 
