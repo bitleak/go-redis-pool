@@ -1832,10 +1832,13 @@ var _ = Describe("Pool_GD", func() {
 				Expect(statuses[0].Err()).NotTo(HaveOccurred())
 				Expect(statuses[1].Err()).To(Equal(errors.New("EOF")))
 				mgetKeys := append(keys, "e3")
-				vals, err := pool.MGetWithGD(context.Background(), mgetKeys...)
+				vals, keyErrors := pool.MGetWithGD(context.Background(), mgetKeys...)
 				time.Sleep(10 * time.Millisecond)
-				Expect(err).To(Equal(errors.New("EOF")))
 				Expect(vals).To(Equal([]interface{}{nil, "b3", nil, "d3", nil}))
+				Expect(keyErrors).To(Equal(map[string]error{
+					"a3": errors.New("EOF"),
+					"c3": errors.New("EOF"),
+				}))
 				pool.Del(keys...)
 			}
 		})
