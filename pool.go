@@ -324,10 +324,19 @@ func (p *Pool) Touch(keys ...string) (int64, error) {
 }
 
 // MGetWithGD is like MGet but returns all the values that it managed to get
-func (p *Pool) MGetWithGD(ctx context.Context, keys ...string) ([]interface{}, error) {
+func (p *Pool) MGetWithGD(ctx context.Context, keys ...string) ([]interface{}, map[string]error) {
+	keyErrors := make(map[string]error, 0)
+
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.MGet(keys...).Result()
+		vals, err := conn.MGet(keys...).Result()
+		if err != nil {
+			for _, key := range keys {
+				keyErrors[key] = err
+			}
+			return nil, keyErrors
+		}
+		return vals, nil
 	}
 
 	fn := func(factory *ShardConnFactory, keyList ...string) redis.Cmder {
@@ -341,17 +350,19 @@ func (p *Pool) MGetWithGD(ctx context.Context, keys ...string) ([]interface{}, e
 	factory := p.connFactory.(*ShardConnFactory)
 	results := factory.doMultiKeys(fn, keys...)
 	keyVals := make(map[string]interface{}, 0)
-	var firstErr error
 	for _, result := range results {
+		args := result.Args()
 		vals, err := result.(*redis.SliceCmd).Result()
 		if err != nil {
-			if firstErr == nil {
-				firstErr = err
+			for i, arg := range args {
+				if i == 0 {
+					continue
+				}
+				keyErrors[arg.(string)] = err
 			}
 			continue
 		}
 		for i, val := range vals {
-			args := result.Args()
 			keyVals[args[i+1].(string)] = val
 		}
 	}
@@ -362,13 +373,15 @@ func (p *Pool) MGetWithGD(ctx context.Context, keys ...string) ([]interface{}, e
 			vals[i] = val
 		}
 	}
-	return vals, firstErr
+	return vals, keyErrors
 }
 
 func (p *Pool) MGet(keys ...string) ([]interface{}, error) {
-	vals, err := p.MGetWithGD(context.Background(), keys...)
-	if err != nil {
-		return nil, err
+	vals, keyErrors := p.MGetWithGD(context.Background(), keys...)
+	if len(keyErrors) != 0 {
+		for _, err := range keyErrors {
+			return nil, err
+		}
 	}
 	return vals, nil
 }
