@@ -1,4 +1,4 @@
-module github.com/bitleak/go-redis-pool
+module github.com/bitleak/go-redis-pool/v2
 
 go 1.17
 

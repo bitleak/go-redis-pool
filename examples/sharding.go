@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	pool "github.com/bitleak/go-redis-pool"
-	"github.com/bitleak/go-redis-pool/hashkit"
+	pool "github.com/bitleak/go-redis-pool/v2"
+	"github.com/bitleak/go-redis-pool/v2/hashkit"
 )
 
 func main() {
