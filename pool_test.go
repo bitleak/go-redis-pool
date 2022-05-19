@@ -2,12 +2,11 @@ package pool
 
 import (
 	"context"
-	"errors"
 	"math"
 	"sort"
 	"time"
 
-	redis "github.com/go-redis/redis/v7"
+	"github.com/go-redis/redis/v8"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -18,25 +17,27 @@ var _ = Describe("Pool", func() {
 	var err error
 	var pools []*Pool
 
+	ctx := context.Background()
+
 	BeforeEach(func() {
 		haConfig := &HAConfig{
-			Master: "127.0.0.1:8379",
+			Master: "minikube:8379",
 			Slaves: []string{
-				"127.0.0.1:8380",
-				"127.0.0.1:8381",
+				"minikube:8380",
+				"minikube:8381",
 			},
 		}
 		haConfig1 := &HAConfig{
-			Master: "127.0.0.1:8382",
+			Master: "minikube:8382",
 			Slaves: []string{
-				"127.0.0.1:8383",
+				"minikube:8383",
 			},
 		}
 
 		haPool, err = NewHA(haConfig)
 		Expect(err).NotTo(HaveOccurred())
 		master, _ := haPool.WithMaster()
-		Expect(master.FlushDB().Err()).NotTo(HaveOccurred())
+		Expect(master.FlushDB(ctx).Err()).NotTo(HaveOccurred())
 
 		shardPool, err = NewShard(&ShardConfig{
 			Shards: []*HAConfig{
@@ -48,7 +49,7 @@ var _ = Describe("Pool", func() {
 		shards := shardPool.connFactory.(*ShardConnFactory).shards
 		for _, shard := range shards {
 			master, _ = shard.getMasterConn()
-			Expect(master.FlushDB().Err()).NotTo(HaveOccurred())
+			Expect(master.FlushDB(ctx).Err()).NotTo(HaveOccurred())
 		}
 		pools = []*Pool{haPool, shardPool}
 	})
@@ -61,34 +62,34 @@ var _ = Describe("Pool", func() {
 	Describe("Commands", func() {
 		It("ping", func() {
 			for _, pool := range pools {
-				_, err := pool.Ping().Result()
+				_, err := pool.Ping(ctx).Result()
 				Expect(err).NotTo(HaveOccurred())
 			}
 		})
 
 		It("get/set", func() {
 			for _, pool := range pools {
-				result := pool.Set("foo", "bar", 0)
+				result := pool.Set(ctx, "foo", "bar", 0)
 				Expect(result.Val()).To(Equal("OK"))
 				// wait for master progressing the set result
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.Get("foo").Val()).To(Equal("bar"))
+				Expect(pool.Get(ctx, "foo").Val()).To(Equal("bar"))
 			}
 		})
 
 		It("echo", func() {
-			Expect(haPool.Echo("hello").Err()).NotTo(HaveOccurred())
-			Expect(shardPool.Echo("hello").Err()).To(Equal(errShardPoolUnSupported))
+			Expect(haPool.Echo(ctx, "hello").Err()).NotTo(HaveOccurred())
+			Expect(shardPool.Echo(ctx, "hello").Err()).To(Equal(errShardPoolUnSupported))
 		})
 
 		It("delete", func() {
 			keys := []string{"a0", "b0", "c0", "d0"}
 			for _, pool := range pools {
 				for _, key := range keys {
-					Expect(pool.Set(key, "value", 0).Err()).NotTo(HaveOccurred())
+					Expect(pool.Set(ctx, key, "value", 0).Err()).NotTo(HaveOccurred())
 				}
 				deleteKeys := append(keys, "e")
-				n, err := pool.Del(deleteKeys...)
+				n, err := pool.Del(ctx, deleteKeys...)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(int(n)).To(Equal(len(keys)))
 			}
@@ -98,10 +99,10 @@ var _ = Describe("Pool", func() {
 			keys := []string{"a1", "b1", "c1", "d1"}
 			for _, pool := range pools {
 				for _, key := range keys {
-					Expect(pool.Set(key, "value", 0).Err()).NotTo(HaveOccurred())
+					Expect(pool.Set(ctx, key, "value", 0).Err()).NotTo(HaveOccurred())
 				}
 				unlinkKeys := append(keys, "e1")
-				n, err := pool.Unlink(unlinkKeys...)
+				n, err := pool.Unlink(ctx, unlinkKeys...)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(int(n)).To(Equal(len(keys)))
 			}
@@ -111,13 +112,13 @@ var _ = Describe("Pool", func() {
 			keys := []string{"a2", "b2", "c2", "d2"}
 			for _, pool := range pools {
 				for _, key := range keys {
-					Expect(pool.Set(key, "value", 0).Err()).NotTo(HaveOccurred())
+					Expect(pool.Set(ctx, key, "value", 0).Err()).NotTo(HaveOccurred())
 				}
 				touchKeys := append(keys, "e2")
-				n, err := pool.Touch(touchKeys...)
+				n, err := pool.Touch(ctx, touchKeys...)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(int(n)).To(Equal(len(keys)))
-				pool.Del(keys...)
+				_, _ = pool.Del(ctx, keys...)
 			}
 		})
 
@@ -125,18 +126,18 @@ var _ = Describe("Pool", func() {
 			keys := []string{"a3", "b3", "c3", "d3"}
 			for _, pool := range pools {
 				for _, key := range keys {
-					Expect(pool.Set(key, key, 0).Err()).NotTo(HaveOccurred())
+					Expect(pool.Set(ctx, key, key, 0).Err()).NotTo(HaveOccurred())
 				}
 				time.Sleep(10 * time.Millisecond)
 				mgetKeys := append(keys, "e3")
-				vals, err := pool.MGet(mgetKeys...)
+				vals, err := pool.MGet(ctx, mgetKeys...)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(vals)).To(Equal(len(keys) + 1))
 				for i := 0; i < len(keys); i++ {
 					Expect(vals[i].(string)).To(Equal(keys[i]))
 				}
 				Expect(vals[len(keys)]).To(BeNil())
-				pool.Del(keys...)
+				_, _ = pool.Del(ctx, keys...)
 			}
 		})
 
@@ -144,13 +145,13 @@ var _ = Describe("Pool", func() {
 			keys := []string{"a4", "b4", "c4", "d4"}
 			for _, pool := range pools {
 				for _, key := range keys {
-					Expect(pool.Set(key, "value", 0).Err()).NotTo(HaveOccurred())
+					Expect(pool.Set(ctx, key, "value", 0).Err()).NotTo(HaveOccurred())
 				}
 				existsKeys := append(keys, "e4")
-				n, err := pool.Exists(existsKeys...)
+				n, err := pool.Exists(ctx, existsKeys...)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(int(n)).To(Equal(len(keys)))
-				pool.Del(keys...)
+				_, _ = pool.Del(ctx, keys...)
 			}
 		})
 
@@ -161,14 +162,14 @@ var _ = Describe("Pool", func() {
 				keys = append(keys, kvs[i])
 			}
 			for _, pool := range pools {
-				Expect(pool.MSet(kvs).Err()).NotTo(HaveOccurred())
+				Expect(pool.MSet(ctx, kvs).Err()).NotTo(HaveOccurred())
 				time.Sleep(10 * time.Millisecond)
-				vals, err := pool.MGet(keys...)
+				vals, err := pool.MGet(ctx, keys...)
 				Expect(err).NotTo(HaveOccurred())
 				for i := 0; i < len(vals); i += 1 {
 					Expect(vals[i].(string)).To(Equal(kvs[2*i+1]))
 				}
-				pool.Del(keys...)
+				_, _ = pool.Del(ctx, keys...)
 			}
 		})
 
@@ -179,42 +180,42 @@ var _ = Describe("Pool", func() {
 				keys = append(keys, kvs[i])
 			}
 			for _, pool := range pools {
-				Expect(pool.MSetNX(kvs).Val()).To(Equal(true))
-				Expect(pool.MSetNX(kvs).Val()).To(Equal(false))
+				Expect(pool.MSetNX(ctx, kvs).Val()).To(Equal(true))
+				Expect(pool.MSetNX(ctx, kvs).Val()).To(Equal(false))
 				if pool == shardPool {
-					Expect(pool.MSetNX(append(kvs, "key3_nx", "value3")).Err()).To(HaveOccurred())
+					Expect(pool.MSetNX(ctx, append(kvs, "key3_nx", "value3")).Err()).To(HaveOccurred())
 				}
 				time.Sleep(10 * time.Millisecond)
-				vals, err := pool.MGet(keys...)
+				vals, err := pool.MGet(ctx, keys...)
 				Expect(err).NotTo(HaveOccurred())
 				for i := 0; i < len(vals); i += 1 {
 					Expect(vals[i].(string)).To(Equal(kvs[2*i+1]))
 				}
-				pool.Del(keys...)
+				_, _ = pool.Del(ctx, keys...)
 			}
 		})
 
 		It("expire", func() {
 			key := "expire_foo"
 			for _, pool := range pools {
-				result := pool.Set(key, "bar", 0)
+				result := pool.Set(ctx, key, "bar", 0)
 				Expect(result.Val()).To(Equal("OK"))
-				Expect(pool.Expire(key, 10*time.Second).Val()).To(Equal(true))
+				Expect(pool.Expire(ctx, key, 10*time.Second).Val()).To(Equal(true))
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.TTL(key).Val()).NotTo(Equal(-1))
-				pool.Del(key)
+				Expect(pool.TTL(ctx, key).Val()).NotTo(Equal(-1))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
 		It("expire_at", func() {
 			key := "expireat_foo"
 			for _, pool := range pools {
-				result := pool.Set(key, "bar", 0)
+				result := pool.Set(ctx, key, "bar", 0)
 				Expect(result.Val()).To(Equal("OK"))
-				Expect(pool.ExpireAt(key, time.Now().Add(10*time.Second)).Val()).To(Equal(true))
+				Expect(pool.ExpireAt(ctx, key, time.Now().Add(10*time.Second)).Val()).To(Equal(true))
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.TTL(key).Val()).NotTo(Equal(-1))
-				pool.Del(key)
+				Expect(pool.TTL(ctx, key).Val()).NotTo(Equal(-1))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -222,14 +223,14 @@ var _ = Describe("Pool", func() {
 			key := "rename_key"
 			newKey := "rename_key_new"
 			for _, pool := range pools {
-				result := pool.Set(key, "bar", 0)
+				result := pool.Set(ctx, key, "bar", 0)
 				Expect(result.Val()).To(Equal("OK"))
-				result = pool.Rename(key, newKey)
+				result = pool.Rename(ctx, key, newKey)
 				Expect(result.Val()).To(Equal("OK"))
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.Get(newKey).Val()).To(Equal("bar"))
-				Expect(pool.Get(key).Val()).To(Equal(""))
-				pool.Del(newKey)
+				Expect(pool.Get(ctx, newKey).Val()).To(Equal("bar"))
+				Expect(pool.Get(ctx, key).Val()).To(Equal(""))
+				_, _ = pool.Del(ctx, newKey)
 			}
 		})
 
@@ -238,12 +239,12 @@ var _ = Describe("Pool", func() {
 			newKey := "renamenx_key_new4"
 			for _, pool := range pools {
 				if pool == shardPool {
-					Expect(pool.Set(key, "bar", 0).Val()).To(Equal("OK"))
-					Expect(pool.RenameNX(key, newKey).Val()).To(Equal(true))
+					Expect(pool.Set(ctx, key, "bar", 0).Val()).To(Equal("OK"))
+					Expect(pool.RenameNX(ctx, key, newKey).Val()).To(Equal(true))
 					time.Sleep(10 * time.Millisecond)
-					Expect(pool.Get(newKey).Val()).To(Equal("bar"))
-					Expect(pool.Get(key).Val()).To(Equal(""))
-					pool.Del(newKey)
+					Expect(pool.Get(ctx, newKey).Val()).To(Equal("bar"))
+					Expect(pool.Get(ctx, key).Val()).To(Equal(""))
+					_, _ = pool.Del(ctx, newKey)
 				}
 			}
 		})
@@ -251,38 +252,38 @@ var _ = Describe("Pool", func() {
 		It("type", func() {
 			key := "type_key"
 			for _, pool := range pools {
-				Expect(pool.Set(key, "bar", 0).Val()).To(Equal("OK"))
+				Expect(pool.Set(ctx, key, "bar", 0).Val()).To(Equal("OK"))
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.Type(key).Val()).To(Equal("string"))
-				pool.Del(key)
+				Expect(pool.Type(ctx, key).Val()).To(Equal("string"))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
 		It("append", func() {
 			key := "append_key"
 			for _, pool := range pools {
-				Expect(pool.Append(key, "hello").Val()).To(Equal(int64(5)))
-				Expect(pool.Append(key, "world").Val()).To(Equal(int64(10)))
-				pool.Del(key)
+				Expect(pool.Append(ctx, key, "hello").Val()).To(Equal(int64(5)))
+				Expect(pool.Append(ctx, key, "world").Val()).To(Equal(int64(10)))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
 		It("get range", func() {
 			key := "getrange_key"
 			for _, pool := range pools {
-				Expect(pool.Set(key, "hello,world", 0).Val()).To(Equal("OK"))
+				Expect(pool.Set(ctx, key, "hello,world", 0).Val()).To(Equal("OK"))
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.GetRange(key, 2, 5).Val()).To(Equal("llo,"))
-				pool.Del(key)
+				Expect(pool.GetRange(ctx, key, 2, 5).Val()).To(Equal("llo,"))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
 		It("getset", func() {
 			key := "getset_key"
 			for _, pool := range pools {
-				Expect(pool.Set(key, "hello", 0).Val()).To(Equal("OK"))
-				Expect(pool.GetSet(key, "world").Val()).To(Equal("hello"))
-				pool.Del(key)
+				Expect(pool.Set(ctx, key, "hello", 0).Val()).To(Equal("OK"))
+				Expect(pool.GetSet(ctx, key, "world").Val()).To(Equal("hello"))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -291,19 +292,19 @@ var _ = Describe("Pool", func() {
 			offsets := []int64{1, 3, 5, 7, 15, 31, 63}
 			for _, pool := range pools {
 				for _, offset := range offsets {
-					Expect(pool.SetBit(key, offset, 1).Val()).To(Equal(int64(0)))
+					Expect(pool.SetBit(ctx, key, offset, 1).Val()).To(Equal(int64(0)))
 				}
 				time.Sleep(10 * time.Millisecond)
 				for _, offset := range offsets {
-					Expect(pool.GetBit(key, offset).Val()).To(Equal(int64(1)))
+					Expect(pool.GetBit(ctx, key, offset).Val()).To(Equal(int64(1)))
 				}
-				Expect(pool.BitPos(key, 1, 0, 64).Val()).To(Equal(int64(1)))
-				Expect(pool.BitPos(key, 0, 0, 64).Val()).To(Equal(int64(0)))
-				Expect(pool.BitCount(key, &redis.BitCount{
+				Expect(pool.BitPos(ctx, key, 1, 0, 64).Val()).To(Equal(int64(1)))
+				Expect(pool.BitPos(ctx, key, 0, 0, 64).Val()).To(Equal(int64(0)))
+				Expect(pool.BitCount(ctx, key, &redis.BitCount{
 					Start: 0,
 					End:   64,
 				}).Val()).To(Equal(int64(len(offsets))))
-				pool.Del(key)
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -313,81 +314,81 @@ var _ = Describe("Pool", func() {
 			key2 := "op_key_cross"
 			destKey := "opDestKey"
 			for _, pool := range pools {
-				Expect(pool.SetBit(key0, 0, 1).Err()).NotTo(HaveOccurred())
-				Expect(pool.SetBit(key1, 0, 1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SetBit(ctx, key0, 0, 1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SetBit(ctx, key1, 0, 1).Err()).NotTo(HaveOccurred())
 				if pool == shardPool {
-					Expect(pool.BitOpAnd(destKey, key0, key2).Err()).To(HaveOccurred())
+					Expect(pool.BitOpAnd(ctx, destKey, key0, key2).Err()).To(HaveOccurred())
 				}
-				Expect(pool.BitOpAnd(destKey, key0, key1).Err()).NotTo(HaveOccurred())
-				Expect(pool.GetBit(destKey, 0).Val()).To(Equal(int64(1)))
-				Expect(pool.BitOpOr(destKey, key0, key1).Err()).NotTo(HaveOccurred())
-				Expect(pool.GetBit(destKey, 0).Val()).To(Equal(int64(1)))
-				Expect(pool.BitOpXor(destKey, key0, key1).Err()).NotTo(HaveOccurred())
-				Expect(pool.GetBit(destKey, 0).Val()).To(Equal(int64(0)))
-				Expect(pool.BitOpNot(destKey, key0).Err()).NotTo(HaveOccurred())
-				Expect(pool.GetBit(destKey, 0).Val()).To(Equal(int64(0)))
-				pool.Del(key0, key1, destKey)
+				Expect(pool.BitOpAnd(ctx, destKey, key0, key1).Err()).NotTo(HaveOccurred())
+				Expect(pool.GetBit(ctx, destKey, 0).Val()).To(Equal(int64(1)))
+				Expect(pool.BitOpOr(ctx, destKey, key0, key1).Err()).NotTo(HaveOccurred())
+				Expect(pool.GetBit(ctx, destKey, 0).Val()).To(Equal(int64(1)))
+				Expect(pool.BitOpXor(ctx, destKey, key0, key1).Err()).NotTo(HaveOccurred())
+				Expect(pool.GetBit(ctx, destKey, 0).Val()).To(Equal(int64(0)))
+				Expect(pool.BitOpNot(ctx, destKey, key0).Err()).NotTo(HaveOccurred())
+				Expect(pool.GetBit(ctx, destKey, 0).Val()).To(Equal(int64(0)))
+				_, _ = pool.Del(ctx, key0, key1, destKey)
 			}
 		})
 
 		It("incr/decr", func() {
 			key := "incr_key"
 			for _, pool := range pools {
-				Expect(pool.Set(key, 100, 0).Err()).NotTo(HaveOccurred())
-				Expect(pool.Incr(key).Val()).To(Equal(int64(101)))
-				Expect(pool.Decr(key).Val()).To(Equal(int64(100)))
-				Expect(pool.IncrBy(key, 100).Val()).To(Equal(int64(200)))
-				Expect(pool.DecrBy(key, 100).Val()).To(Equal(int64(100)))
-				pool.Del(key)
+				Expect(pool.Set(ctx, key, 100, 0).Err()).NotTo(HaveOccurred())
+				Expect(pool.Incr(ctx, key).Val()).To(Equal(int64(101)))
+				Expect(pool.Decr(ctx, key).Val()).To(Equal(int64(100)))
+				Expect(pool.IncrBy(ctx, key, 100).Val()).To(Equal(int64(200)))
+				Expect(pool.DecrBy(ctx, key, 100).Val()).To(Equal(int64(100)))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
 		It("incrbyfloat", func() {
 			key := "incrbyfloat_key"
 			for _, pool := range pools {
-				Expect(pool.Set(key, 100, 0).Err()).NotTo(HaveOccurred())
-				Expect(pool.IncrByFloat(key, 1.5).Val()).To(Equal(101.5))
-				pool.Del(key)
+				Expect(pool.Set(ctx, key, 100, 0).Err()).NotTo(HaveOccurred())
+				Expect(pool.IncrByFloat(ctx, key, 1.5).Val()).To(Equal(101.5))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
 		It("setnx", func() {
 			key := "setnx_key"
 			for _, pool := range pools {
-				Expect(pool.SetNX(key, "bar", 0).Val()).To(Equal(true))
-				Expect(pool.SetNX(key, "bar", 0).Val()).To(Equal(false))
-				pool.Del(key)
+				Expect(pool.SetNX(ctx, key, "bar", 0).Val()).To(Equal(true))
+				Expect(pool.SetNX(ctx, key, "bar", 0).Val()).To(Equal(false))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
 		It("setxx", func() {
 			key := "setxx_key"
 			for _, pool := range pools {
-				Expect(pool.SetXX(key, "bar", 0).Val()).To(Equal(false))
-				Expect(pool.Set(key, 100, 0).Err()).NotTo(HaveOccurred())
-				Expect(pool.SetNX(key, "bar", 0).Val()).To(Equal(false))
-				pool.Del(key)
+				Expect(pool.SetXX(ctx, key, "bar", 0).Val()).To(Equal(false))
+				Expect(pool.Set(ctx, key, 100, 0).Err()).NotTo(HaveOccurred())
+				Expect(pool.SetNX(ctx, key, "bar", 0).Val()).To(Equal(false))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
 		It("setrange", func() {
 			key := "setrange_key"
 			for _, pool := range pools {
-				Expect(pool.Set(key, "hello,world", 0).Err()).NotTo(HaveOccurred())
-				Expect(pool.SetRange(key, 6, "myworld").Err()).NotTo(HaveOccurred())
+				Expect(pool.Set(ctx, key, "hello,world", 0).Err()).NotTo(HaveOccurred())
+				Expect(pool.SetRange(ctx, key, 6, "myworld").Err()).NotTo(HaveOccurred())
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.Get(key).Val()).To(Equal("hello,myworld"))
-				pool.Del(key)
+				Expect(pool.Get(ctx, key).Val()).To(Equal("hello,myworld"))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
 		It("strlen", func() {
 			key := "strlen_key"
 			for _, pool := range pools {
-				Expect(pool.Set(key, "hello", 0).Err()).NotTo(HaveOccurred())
+				Expect(pool.Set(ctx, key, "hello", 0).Err()).NotTo(HaveOccurred())
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.StrLen(key).Val()).To(Equal(int64(5)))
-				pool.Del(key)
+				Expect(pool.StrLen(ctx, key).Val()).To(Equal(int64(5)))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -395,10 +396,10 @@ var _ = Describe("Pool", func() {
 			key := "hset_key"
 			field := "filed"
 			for _, pool := range pools {
-				Expect(pool.HSet(key, field, "bar").Val()).To(Equal(true))
+				Expect(pool.HSet(ctx, key, field, "bar").Val()).To(Equal(int64(1)))
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.HGet(key, field).Val()).To(Equal("bar"))
-				pool.Del(key)
+				Expect(pool.HGet(ctx, key, field).Val()).To(Equal("bar"))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -406,13 +407,13 @@ var _ = Describe("Pool", func() {
 			key := "hexists_key"
 			field := "filed"
 			for _, pool := range pools {
-				Expect(pool.HSet(key, field, "bar").Val()).To(Equal(true))
+				Expect(pool.HSet(ctx, key, field, "bar").Val()).To(Equal(int64(1)))
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.HExists(key, field).Val()).To(Equal(true))
-				Expect(pool.HDel(key, field).Val()).To(Equal(int64(1)))
+				Expect(pool.HExists(ctx, key, field).Val()).To(Equal(true))
+				Expect(pool.HDel(ctx, key, field).Val()).To(Equal(int64(1)))
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.HExists(key, field).Val()).To(Equal(false))
-				pool.Del(key)
+				Expect(pool.HExists(ctx, key, field).Val()).To(Equal(false))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -420,15 +421,15 @@ var _ = Describe("Pool", func() {
 			key := "hgetall_key"
 			fvs := []string{"f1", "v1", "f2", "v2", "f3", "v3"}
 			for _, pool := range pools {
-				Expect(pool.HMSet(key, fvs).Val()).To(Equal(int64(len(fvs) / 2)))
+				Expect(pool.HMSet(ctx, key, fvs).Val()).To(Equal(true))
 				time.Sleep(10 * time.Millisecond)
-				kvs := pool.HGetAll(key).Val()
+				kvs := pool.HGetAll(ctx, key).Val()
 				for i := 0; i < len(fvs); i += 2 {
 					Expect(kvs[fvs[i]]).To(Equal(fvs[i+1]))
 				}
-				Expect(len(pool.HKeys(key).Val())).To(Equal(len(fvs) / 2))
-				Expect(len(pool.HVals(key).Val())).To(Equal(len(fvs) / 2))
-				pool.Del(key)
+				Expect(len(pool.HKeys(ctx, key).Val())).To(Equal(len(fvs) / 2))
+				Expect(len(pool.HVals(ctx, key).Val())).To(Equal(len(fvs) / 2))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -440,12 +441,12 @@ var _ = Describe("Pool", func() {
 				fields[i/2] = fvs[i]
 			}
 			for _, pool := range pools {
-				Expect(pool.HMSet(key, fvs).Val()).To(Equal(int64(len(fvs) / 2)))
+				Expect(pool.HMSet(ctx, key, fvs).Val()).To(Equal(true))
 				time.Sleep(10 * time.Millisecond)
-				vals := pool.HMGet(key, fields...).Val()
+				vals := pool.HMGet(ctx, key, fields...).Val()
 				Expect(len(vals)).To(Equal(len(fvs) / 2))
-				Expect(pool.HLen(key).Val()).To(Equal(int64(len(fvs) / 2)))
-				pool.Del(key)
+				Expect(pool.HLen(ctx, key).Val()).To(Equal(int64(len(fvs) / 2)))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -454,12 +455,12 @@ var _ = Describe("Pool", func() {
 			intField := "int_field"
 			floatField := "float_field"
 			for _, pool := range pools {
-				Expect(pool.HIncrBy(key, intField, 100).Val()).To(Equal(int64(100)))
-				Expect(pool.HIncrBy(key, intField, 100).Val()).To(Equal(int64(200)))
-				Expect(pool.HIncrByFloat(key, floatField, 10.5).Val()).To(Equal(float64(10.5)))
-				Expect(pool.HIncrByFloat(key, floatField, 10.5).Val()).To(Equal(float64(21)))
-				Expect(pool.HDel(key, intField, floatField).Val()).To(Equal(int64(2)))
-				pool.Del(key)
+				Expect(pool.HIncrBy(ctx, key, intField, 100).Val()).To(Equal(int64(100)))
+				Expect(pool.HIncrBy(ctx, key, intField, 100).Val()).To(Equal(int64(200)))
+				Expect(pool.HIncrByFloat(ctx, key, floatField, 10.5).Val()).To(Equal(float64(10.5)))
+				Expect(pool.HIncrByFloat(ctx, key, floatField, 10.5).Val()).To(Equal(float64(21)))
+				Expect(pool.HDel(ctx, key, intField, floatField).Val()).To(Equal(int64(2)))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -469,12 +470,12 @@ var _ = Describe("Pool", func() {
 			for _, pool := range pools {
 				go func() {
 					time.Sleep(100 * time.Millisecond)
-					pool.LPush(key, "e1", "e2")
+					pool.LPush(ctx, key, "e1", "e2")
 				}()
-				Expect(pool.BLPop(time.Second, key).Val()).To(Equal([]string{key, "e2"}))
-				Expect(pool.BLPop(time.Second, key).Val()).To(Equal([]string{key, "e1"}))
+				Expect(pool.BLPop(ctx, time.Second, key).Val()).To(Equal([]string{key, "e2"}))
+				Expect(pool.BLPop(ctx, time.Second, key).Val()).To(Equal([]string{key, "e1"}))
 				if pool == shardPool {
-					Expect(pool.BLPop(time.Second, key, noExistsKey).Err()).To(HaveOccurred())
+					Expect(pool.BLPop(ctx, time.Second, key, noExistsKey).Err()).To(HaveOccurred())
 				}
 			}
 		})
@@ -485,12 +486,12 @@ var _ = Describe("Pool", func() {
 			for _, pool := range pools {
 				go func() {
 					time.Sleep(100 * time.Millisecond)
-					pool.LPush(key, "e1", "e2")
+					pool.LPush(ctx, key, "e1", "e2")
 				}()
-				Expect(pool.BRPop(time.Second, key).Val()).To(Equal([]string{key, "e1"}))
-				Expect(pool.BRPop(time.Second, key).Val()).To(Equal([]string{key, "e2"}))
+				Expect(pool.BRPop(ctx, time.Second, key).Val()).To(Equal([]string{key, "e1"}))
+				Expect(pool.BRPop(ctx, time.Second, key).Val()).To(Equal([]string{key, "e2"}))
 				if pool == shardPool {
-					Expect(pool.BRPop(time.Second, key, noExistsKey).Err()).To(HaveOccurred())
+					Expect(pool.BRPop(ctx, time.Second, key, noExistsKey).Err()).To(HaveOccurred())
 				}
 			}
 		})
@@ -503,15 +504,15 @@ var _ = Describe("Pool", func() {
 			for _, pool := range pools {
 				go func() {
 					time.Sleep(100 * time.Millisecond)
-					pool.LPush(sourceKey, elems)
+					pool.LPush(ctx, sourceKey, elems)
 				}()
 				for _, elem := range elems {
-					Expect(pool.BRPopLPush(sourceKey, destKey, time.Second).Val()).To(Equal(elem))
+					Expect(pool.BRPopLPush(ctx, sourceKey, destKey, time.Second).Val()).To(Equal(elem))
 				}
 				if pool == shardPool {
-					Expect(pool.BRPop(time.Second, sourceKey, crossShardKey).Err()).To(HaveOccurred())
+					Expect(pool.BRPop(ctx, time.Second, sourceKey, crossShardKey).Err()).To(HaveOccurred())
 				}
-				pool.Del(sourceKey, destKey)
+				_, _ = pool.Del(ctx, sourceKey, destKey)
 			}
 		})
 
@@ -519,12 +520,12 @@ var _ = Describe("Pool", func() {
 			key := "lindex_key"
 			elems := []string{"e1", "e2", "e3"}
 			for _, pool := range pools {
-				pool.RPush(key, elems)
+				pool.RPush(ctx, key, elems)
 				time.Sleep(10 * time.Millisecond)
 				for i, elem := range elems {
-					Expect(pool.LIndex(key, int64(i)).Val()).To(Equal(elem))
+					Expect(pool.LIndex(ctx, key, int64(i)).Val()).To(Equal(elem))
 				}
-				pool.Del(key)
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -532,15 +533,15 @@ var _ = Describe("Pool", func() {
 			key := "linsert_key"
 			elems := []string{"e1", "e2", "e3"}
 			for _, pool := range pools {
-				pool.RPush(key, elems)
-				Expect(pool.LInsertBefore(key, "e1", "hello").Val()).
+				pool.RPush(ctx, key, elems)
+				Expect(pool.LInsertBefore(ctx, key, "e1", "hello").Val()).
 					To(Equal(int64(len(elems) + 1)))
-				Expect(pool.LInsertBefore(key, "e0", "hello").Val()).
+				Expect(pool.LInsertBefore(ctx, key, "e0", "hello").Val()).
 					To(Equal(int64(-1)))
-				Expect(pool.LInsertAfter(key, "hello", "world").Val()).
+				Expect(pool.LInsertAfter(ctx, key, "hello", "world").Val()).
 					To(Equal(int64(len(elems) + 2)))
-				Expect(pool.LLen(key).Val()).To(Equal(int64(len(elems) + 2)))
-				pool.Del(key)
+				Expect(pool.LLen(ctx, key).Val()).To(Equal(int64(len(elems) + 2)))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -548,9 +549,9 @@ var _ = Describe("Pool", func() {
 			key := "lpush_key"
 			elems := []string{"e1", "e2", "e3"}
 			for _, pool := range pools {
-				Expect(pool.LPush(key, elems).Val()).To(Equal(int64(len(elems))))
+				Expect(pool.LPush(ctx, key, elems).Val()).To(Equal(int64(len(elems))))
 				for _, elem := range elems {
-					Expect(pool.RPop(key).Val()).To(Equal(elem))
+					Expect(pool.RPop(ctx, key).Val()).To(Equal(elem))
 				}
 			}
 		})
@@ -559,9 +560,9 @@ var _ = Describe("Pool", func() {
 			key := "rpush_key"
 			elems := []string{"e1", "e2", "e3"}
 			for _, pool := range pools {
-				Expect(pool.RPush(key, elems).Val()).To(Equal(int64(len(elems))))
+				Expect(pool.RPush(ctx, key, elems).Val()).To(Equal(int64(len(elems))))
 				for _, elem := range elems {
-					Expect(pool.LPop(key).Val()).To(Equal(elem))
+					Expect(pool.LPop(ctx, key).Val()).To(Equal(elem))
 				}
 			}
 		})
@@ -570,12 +571,12 @@ var _ = Describe("Pool", func() {
 			key := "lpushx_key"
 			elems := []string{"e1", "e2", "e3"}
 			for _, pool := range pools {
-				Expect(pool.LPushX(key, elems).Val()).To(Equal(int64(0)))
-				pool.LPush(key, "e0")
-				Expect(pool.LPushX(key, elems).Val()).To(Equal(int64(len(elems) + 1)))
-				Expect(pool.RPop(key).Val()).To(Equal("e0"))
+				Expect(pool.LPushX(ctx, key, elems).Val()).To(Equal(int64(0)))
+				pool.LPush(ctx, key, "e0")
+				Expect(pool.LPushX(ctx, key, elems).Val()).To(Equal(int64(len(elems) + 1)))
+				Expect(pool.RPop(ctx, key).Val()).To(Equal("e0"))
 				for _, elem := range elems {
-					Expect(pool.RPop(key).Val()).To(Equal(elem))
+					Expect(pool.RPop(ctx, key).Val()).To(Equal(elem))
 				}
 			}
 		})
@@ -584,12 +585,12 @@ var _ = Describe("Pool", func() {
 			key := "rpushx_key"
 			elems := []string{"e1", "e2", "e3"}
 			for _, pool := range pools {
-				Expect(pool.RPushX(key, elems).Val()).To(Equal(int64(0)))
-				pool.RPush(key, "e0")
-				Expect(pool.RPushX(key, elems).Val()).To(Equal(int64(len(elems) + 1)))
-				Expect(pool.LPop(key).Val()).To(Equal("e0"))
+				Expect(pool.RPushX(ctx, key, elems).Val()).To(Equal(int64(0)))
+				pool.RPush(ctx, key, "e0")
+				Expect(pool.RPushX(ctx, key, elems).Val()).To(Equal(int64(len(elems) + 1)))
+				Expect(pool.LPop(ctx, key).Val()).To(Equal("e0"))
 				for _, elem := range elems {
-					Expect(pool.LPop(key).Val()).To(Equal(elem))
+					Expect(pool.LPop(ctx, key).Val()).To(Equal(elem))
 				}
 			}
 		})
@@ -598,10 +599,10 @@ var _ = Describe("Pool", func() {
 			key := "lrange_key"
 			elems := []string{"e1", "e2", "e3"}
 			for _, pool := range pools {
-				Expect(pool.RPush(key, elems).Val()).To(Equal(int64(len(elems))))
+				Expect(pool.RPush(ctx, key, elems).Val()).To(Equal(int64(len(elems))))
 				time.Sleep(10 * time.Millisecond)
-				Expect(pool.LRange(key, 0, -1).Val()).To(Equal(elems))
-				pool.Del(key)
+				Expect(pool.LRange(ctx, key, 0, -1).Val()).To(Equal(elems))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -609,9 +610,9 @@ var _ = Describe("Pool", func() {
 			key := "lrem_key"
 			elems := []string{"e1", "e2", "e3"}
 			for _, pool := range pools {
-				Expect(pool.RPush(key, elems).Val()).To(Equal(int64(len(elems))))
+				Expect(pool.RPush(ctx, key, elems).Val()).To(Equal(int64(len(elems))))
 				for _, elem := range elems {
-					Expect(pool.LRem(key, 0, elem).Val()).To(Equal(int64(1)))
+					Expect(pool.LRem(ctx, key, 0, elem).Val()).To(Equal(int64(1)))
 				}
 			}
 		})
@@ -620,9 +621,9 @@ var _ = Describe("Pool", func() {
 			key := "lset_key"
 			elems := []string{"e1", "e2", "e3"}
 			for _, pool := range pools {
-				Expect(pool.RPush(key, elems).Val()).To(Equal(int64(len(elems))))
-				Expect(pool.LSet(key, 0, "hello").Val()).To(Equal("OK"))
-				pool.Del(key)
+				Expect(pool.RPush(ctx, key, elems).Val()).To(Equal(int64(len(elems))))
+				Expect(pool.LSet(ctx, key, 0, "hello").Val()).To(Equal("OK"))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -630,10 +631,10 @@ var _ = Describe("Pool", func() {
 			key := "ltrim_key"
 			elems := []string{"e1", "e2", "e3"}
 			for _, pool := range pools {
-				Expect(pool.RPush(key, elems).Val()).To(Equal(int64(len(elems))))
-				Expect(pool.LTrim(key, 1, -1).Val()).To(Equal("OK"))
-				Expect(pool.LRange(key, 0, -1).Val()).To(Equal(elems[1:]))
-				pool.Del(key)
+				Expect(pool.RPush(ctx, key, elems).Val()).To(Equal(int64(len(elems))))
+				Expect(pool.LTrim(ctx, key, 1, -1).Val()).To(Equal("OK"))
+				Expect(pool.LRange(ctx, key, 0, -1).Val()).To(Equal(elems[1:]))
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -641,11 +642,11 @@ var _ = Describe("Pool", func() {
 			sourceKey := "rpoplpush_source"
 			destKey := "rpoplpush_destination"
 			for _, pool := range pools {
-				ret, err := pool.RPopLPush(sourceKey, destKey).Result()
+				ret, err := pool.RPopLPush(ctx, sourceKey, destKey).Result()
 				Expect(err).To(Equal(redis.Nil))
 				Expect(ret).To(Equal(""))
-				pool.LPush(sourceKey, "hello")
-				ret, err = pool.RPopLPush(sourceKey, destKey).Result()
+				pool.LPush(ctx, sourceKey, "hello")
+				ret, err = pool.RPopLPush(ctx, sourceKey, destKey).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal("hello"))
 			}
@@ -655,10 +656,10 @@ var _ = Describe("Pool", func() {
 			key := "sadd_key"
 			members := []string{"sadd_member1", "sadd_member2", "sadd_member3"}
 			for _, pool := range pools {
-				ret, err := pool.SAdd(key, members).Result()
+				ret, err := pool.SAdd(ctx, key, members).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(3)))
-				Expect(pool.SMembers(key).Val()).To(ContainElements("sadd_member1", "sadd_member2", "sadd_member3"))
+				Expect(pool.SMembers(ctx, key).Val()).To(ContainElements("sadd_member1", "sadd_member2", "sadd_member3"))
 			}
 		})
 
@@ -666,10 +667,10 @@ var _ = Describe("Pool", func() {
 			key := "scard_key"
 			members := []string{"scard_member1", "scard_member2", "scard_member3"}
 			for _, pool := range pools {
-				ret, err := pool.SAdd(key, members).Result()
+				ret, err := pool.SAdd(ctx, key, members).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(3)))
-				ret, err = pool.SCard(key).Result()
+				ret, err = pool.SCard(ctx, key).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(3)))
 			}
@@ -681,9 +682,9 @@ var _ = Describe("Pool", func() {
 			key2 := "sdiff_key2"
 			members2 := []string{"sdiff_member2", "sdiff_member3"}
 			for _, pool := range pools {
-				Expect(pool.SAdd(key1, members1).Val()).To(Equal(int64(2)))
-				Expect(pool.SAdd(key2, members2).Val()).To(Equal(int64(2)))
-				ret, err := pool.SDiff(key1, key2).Result()
+				Expect(pool.SAdd(ctx, key1, members1).Val()).To(Equal(int64(2)))
+				Expect(pool.SAdd(ctx, key2, members2).Val()).To(Equal(int64(2)))
+				ret, err := pool.SDiff(ctx, key1, key2).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(ContainElements("sdiff_member1"))
 			}
@@ -696,12 +697,12 @@ var _ = Describe("Pool", func() {
 			members2 := []string{"sdiffstore_member2", "sdiffstore_member3"}
 			destination := "sdiffstore_destination"
 			for _, pool := range pools {
-				Expect(pool.SAdd(key1, members1).Err()).NotTo(HaveOccurred())
-				Expect(pool.SAdd(key2, members2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SDiffStore(destination, key1, key2).Result()
+				Expect(pool.SAdd(ctx, key1, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(ctx, key2, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SDiffStore(ctx, destination, key1, key2).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(1)))
-				Expect(pool.SMembers(destination).Val()).To(ContainElements("sdiffstore_member1"))
+				Expect(pool.SMembers(ctx, destination).Val()).To(ContainElements("sdiffstore_member1"))
 			}
 		})
 
@@ -711,9 +712,9 @@ var _ = Describe("Pool", func() {
 			key2 := "sinter_key2"
 			members2 := []string{"sinter_member2", "sinter_member3"}
 			for _, pool := range pools {
-				Expect(pool.SAdd(key1, members1).Err()).NotTo(HaveOccurred())
-				Expect(pool.SAdd(key2, members2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SInter(key1, key2).Result()
+				Expect(pool.SAdd(ctx, key1, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(ctx, key2, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SInter(ctx, key1, key2).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(ContainElements("sinter_member2"))
 			}
@@ -726,12 +727,12 @@ var _ = Describe("Pool", func() {
 			members2 := []string{"sinterstore_member2", "sinterstore_member3"}
 			destination := "sinterstore_destination"
 			for _, pool := range pools {
-				Expect(pool.SAdd(key1, members1).Err()).NotTo(HaveOccurred())
-				Expect(pool.SAdd(key2, members2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SInterStore(destination, key1, key2).Result()
+				Expect(pool.SAdd(ctx, key1, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(ctx, key2, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SInterStore(ctx, destination, key1, key2).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(1)))
-				Expect(pool.SMembers(destination).Val()).To(ContainElements("sinterstore_member2"))
+				Expect(pool.SMembers(ctx, destination).Val()).To(ContainElements("sinterstore_member2"))
 			}
 		})
 
@@ -739,11 +740,11 @@ var _ = Describe("Pool", func() {
 			key := "sismember_key"
 			members := []string{"sismember_member1", "sismember_member2", "sismember_member3"}
 			for _, pool := range pools {
-				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SIsMember(key, "sismember_member1").Result()
+				Expect(pool.SAdd(ctx, key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SIsMember(ctx, key, "sismember_member1").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(true))
-				ret, err = pool.SIsMember(key, "sismember_member4").Result()
+				ret, err = pool.SIsMember(ctx, key, "sismember_member4").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(false))
 			}
@@ -753,8 +754,8 @@ var _ = Describe("Pool", func() {
 			key := "smembers_key"
 			members := []string{"smembers_member1", "smembers_member2", "smembers_member3"}
 			for _, pool := range pools {
-				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SMembers(key).Result()
+				Expect(pool.SAdd(ctx, key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SMembers(ctx, key).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(ContainElements("smembers_member1", "smembers_member2", "smembers_member3"))
 			}
@@ -764,8 +765,8 @@ var _ = Describe("Pool", func() {
 			key := "smembersmap_key"
 			members := []string{"smembersmap_member1", "smembersmap_member2", "smembersmap_member3"}
 			for _, pool := range pools {
-				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SMembersMap(key).Result()
+				Expect(pool.SAdd(ctx, key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SMembersMap(ctx, key).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(HaveKey("smembersmap_member1"))
 				Expect(ret).To(HaveKey("smembersmap_member2"))
@@ -779,12 +780,12 @@ var _ = Describe("Pool", func() {
 			destination := "smove_key2"
 			members2 := []string{"smove_member3", "smove_member4"}
 			for _, pool := range pools {
-				Expect(pool.SAdd(source, members1).Err()).NotTo(HaveOccurred())
-				Expect(pool.SAdd(destination, members2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SMove(source, destination, "smove_member1").Result()
+				Expect(pool.SAdd(ctx, source, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(ctx, destination, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SMove(ctx, source, destination, "smove_member1").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(true))
-				Expect(pool.SMembers(destination).Val()).To(ContainElements("smove_member1"))
+				Expect(pool.SMembers(ctx, destination).Val()).To(ContainElements("smove_member1"))
 			}
 		})
 
@@ -796,13 +797,13 @@ var _ = Describe("Pool", func() {
 				for _, member := range members {
 					memberMap[member] = true
 				}
-				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SPop(key).Result()
+				Expect(pool.SAdd(ctx, key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SPop(ctx, key).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(memberMap[ret]).To(Equal(true))
 				delete(memberMap, ret)
 				for member := range memberMap {
-					Expect(pool.SMembers(key).Val()).To(ContainElements(member))
+					Expect(pool.SMembers(ctx, key).Val()).To(ContainElements(member))
 				}
 			}
 		})
@@ -815,15 +816,15 @@ var _ = Describe("Pool", func() {
 				for _, member := range members {
 					memberMap[member] = true
 				}
-				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
-				rets, err := pool.SPopN(key, 2).Result()
+				Expect(pool.SAdd(ctx, key, members).Err()).NotTo(HaveOccurred())
+				rets, err := pool.SPopN(ctx, key, 2).Result()
 				Expect(err).NotTo(HaveOccurred())
 				for _, ret := range rets {
 					Expect(memberMap[ret]).To(Equal(true))
 					delete(memberMap, ret)
 				}
 				for member := range memberMap {
-					Expect(pool.SMembers(key).Val()).To(ContainElements(member))
+					Expect(pool.SMembers(ctx, key).Val()).To(ContainElements(member))
 				}
 			}
 		})
@@ -836,11 +837,11 @@ var _ = Describe("Pool", func() {
 				for _, member := range members {
 					memberMap[member] = true
 				}
-				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SRandMember(key).Result()
+				Expect(pool.SAdd(ctx, key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SRandMember(ctx, key).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(memberMap[ret]).To(Equal(true))
-				Expect(pool.SMembers(key).Val()).To(ContainElements("srandmember_member1", "srandmember_member2", "srandmember_member3"))
+				Expect(pool.SMembers(ctx, key).Val()).To(ContainElements("srandmember_member1", "srandmember_member2", "srandmember_member3"))
 			}
 		})
 
@@ -852,13 +853,13 @@ var _ = Describe("Pool", func() {
 				for _, member := range members {
 					memberMap[member] = true
 				}
-				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
-				rets, err := pool.SRandMemberN(key, 2).Result()
+				Expect(pool.SAdd(ctx, key, members).Err()).NotTo(HaveOccurred())
+				rets, err := pool.SRandMemberN(ctx, key, 2).Result()
 				Expect(err).NotTo(HaveOccurred())
 				for _, ret := range rets {
 					Expect(memberMap[ret]).To(Equal(true))
 				}
-				Expect(pool.SMembers(key).Val()).To(ContainElements("srandmembern_member1", "srandmembern_member2", "srandmembern_member3"))
+				Expect(pool.SMembers(ctx, key).Val()).To(ContainElements("srandmembern_member1", "srandmembern_member2", "srandmembern_member3"))
 			}
 		})
 
@@ -866,11 +867,11 @@ var _ = Describe("Pool", func() {
 			key := "srem_key"
 			members := []string{"srem_member1", "srem_member2", "srem_member3"}
 			for _, pool := range pools {
-				Expect(pool.SAdd(key, members).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SRem(key, "srem_member1", "srem_member2").Result()
+				Expect(pool.SAdd(ctx, key, members).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SRem(ctx, key, "srem_member1", "srem_member2").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(2)))
-				Expect(pool.SMembers(key).Val()).NotTo(ContainElements("srem_member1", "srem_member2"))
+				Expect(pool.SMembers(ctx, key).Val()).NotTo(ContainElements("srem_member1", "srem_member2"))
 			}
 		})
 
@@ -880,9 +881,9 @@ var _ = Describe("Pool", func() {
 			key2 := "sunion_key2"
 			members2 := []string{"sunion_member2", "sunion_member3"}
 			for _, pool := range pools {
-				Expect(pool.SAdd(key1, members1).Err()).NotTo(HaveOccurred())
-				Expect(pool.SAdd(key2, members2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SUnion(key1, key2).Result()
+				Expect(pool.SAdd(ctx, key1, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(ctx, key2, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SUnion(ctx, key1, key2).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(ContainElements("sunion_member1", "sunion_member2", "sunion_member3"))
 			}
@@ -895,13 +896,13 @@ var _ = Describe("Pool", func() {
 			members2 := []string{"sunionstore_member2", "sunionstore_member3"}
 			destination := "sunionstore_destination"
 			for _, pool := range pools {
-				Expect(pool.SAdd(key1, members1).Err()).NotTo(HaveOccurred())
-				Expect(pool.SAdd(key2, members2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.SUnionStore(destination, key1, key2).Result()
+				Expect(pool.SAdd(ctx, key1, members1).Err()).NotTo(HaveOccurred())
+				Expect(pool.SAdd(ctx, key2, members2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.SUnionStore(ctx, destination, key1, key2).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(3)))
-				Expect(pool.SMembers(destination).Val()).To(ContainElements("sunionstore_member1", "sunionstore_member2", "sunionstore_member3"))
-				pool.Del(destination)
+				Expect(pool.SMembers(ctx, destination).Val()).To(ContainElements("sunionstore_member1", "sunionstore_member2", "sunionstore_member3"))
+				_, _ = pool.Del(ctx, destination)
 			}
 		})
 
@@ -918,10 +919,10 @@ var _ = Describe("Pool", func() {
 				Latitude:  31.231706,
 			}
 			for _, pool := range pools {
-				ret, err := pool.GeoAdd(key, geo1, geo2).Result()
+				ret, err := pool.GeoAdd(ctx, key, geo1, geo2).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(2)))
-				pool.Del(key)
+				_, _ = pool.Del(ctx, key)
 			}
 		})
 
@@ -938,8 +939,8 @@ var _ = Describe("Pool", func() {
 				Latitude:  31.231706,
 			}
 			for _, pool := range pools {
-				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.GeoPos(key, geo2.Name, geo1.Name).Result()
+				Expect(pool.GeoAdd(ctx, key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoPos(ctx, key, geo2.Name, geo1.Name).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(math.Abs(ret[0].Longitude - geo2.Longitude)).To(BeNumerically("<=", 0.00001))
 				Expect(math.Abs(ret[0].Latitude - geo2.Latitude)).To(BeNumerically("<=", 0.00001))
@@ -961,8 +962,8 @@ var _ = Describe("Pool", func() {
 				Latitude:  31.231706,
 			}
 			for _, pool := range pools {
-				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.GeoRadius(key, geo1.Longitude, geo1.Latitude, &redis.GeoRadiusQuery{
+				Expect(pool.GeoAdd(ctx, key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoRadius(ctx, key, geo1.Longitude, geo1.Latitude, &redis.GeoRadiusQuery{
 					Radius:    10,
 					Unit:      "km",
 					WithCoord: true,
@@ -992,8 +993,8 @@ var _ = Describe("Pool", func() {
 			storeKey := "georadiusstore_store_dest"
 			storeDistKey := "georadiusstore_storedist_dest"
 			for _, pool := range pools {
-				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.GeoRadiusStore(key, geo1.Longitude, geo1.Latitude, &redis.GeoRadiusQuery{
+				Expect(pool.GeoAdd(ctx, key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoRadiusStore(ctx, key, geo1.Longitude, geo1.Latitude, &redis.GeoRadiusQuery{
 					Radius: 10,
 					Unit:   "km",
 					Count:  10,
@@ -1001,13 +1002,13 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(1)))
-				pos, err := pool.GeoPos(storeKey, geo1.Name).Result()
+				pos, err := pool.GeoPos(ctx, storeKey, geo1.Name).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(pos)).To(Equal(1))
 				Expect(math.Abs(pos[0].Longitude - geo1.Longitude)).To(BeNumerically("<=", 0.00001))
 				Expect(math.Abs(pos[0].Latitude - geo1.Latitude)).To(BeNumerically("<=", 0.00001))
 
-				ret, err = pool.GeoRadiusStore(key, geo1.Longitude, geo1.Latitude, &redis.GeoRadiusQuery{
+				ret, err = pool.GeoRadiusStore(ctx, key, geo1.Longitude, geo1.Latitude, &redis.GeoRadiusQuery{
 					Radius:    10,
 					Unit:      "km",
 					Count:     10,
@@ -1015,7 +1016,7 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(1)))
-				dist, err := pool.ZRangeWithScores(storeDistKey, 0, -1).Result()
+				dist, err := pool.ZRangeWithScores(ctx, storeDistKey, 0, -1).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(dist)).To(Equal(1))
 				Expect(dist[0].Member).To(Equal(geo1.Name))
@@ -1036,8 +1037,8 @@ var _ = Describe("Pool", func() {
 				Latitude:  31.231706,
 			}
 			for _, pool := range pools {
-				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.GeoRadiusByMember(key, geo1.Name, &redis.GeoRadiusQuery{
+				Expect(pool.GeoAdd(ctx, key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoRadiusByMember(ctx, key, geo1.Name, &redis.GeoRadiusQuery{
 					Radius:    10,
 					Unit:      "km",
 					WithCoord: true,
@@ -1067,8 +1068,8 @@ var _ = Describe("Pool", func() {
 			storeKey := "georadiusbymemberstore_store_key"
 			storeDistKey := "georadiusbymemberstore_storedist_key"
 			for _, pool := range pools {
-				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.GeoRadiusByMemberStore(key, geo1.Name, &redis.GeoRadiusQuery{
+				Expect(pool.GeoAdd(ctx, key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoRadiusByMemberStore(ctx, key, geo1.Name, &redis.GeoRadiusQuery{
 					Radius: 10,
 					Unit:   "km",
 					Count:  10,
@@ -1076,13 +1077,13 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(1)))
-				pos, err := pool.GeoPos(storeKey, geo1.Name).Result()
+				pos, err := pool.GeoPos(ctx, storeKey, geo1.Name).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(pos)).To(Equal(1))
 				Expect(math.Abs(pos[0].Longitude - geo1.Longitude)).To(BeNumerically("<=", 0.00001))
 				Expect(math.Abs(pos[0].Latitude - geo1.Latitude)).To(BeNumerically("<=", 0.00001))
 
-				ret, err = pool.GeoRadiusByMemberStore(key, geo1.Name, &redis.GeoRadiusQuery{
+				ret, err = pool.GeoRadiusByMemberStore(ctx, key, geo1.Name, &redis.GeoRadiusQuery{
 					Radius:    10,
 					Unit:      "km",
 					Count:     10,
@@ -1090,7 +1091,7 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(Equal(int64(1)))
-				dist, err := pool.ZRangeWithScores(storeDistKey, 0, -1).Result()
+				dist, err := pool.ZRangeWithScores(ctx, storeDistKey, 0, -1).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(dist)).To(Equal(1))
 				Expect(dist[0].Member).To(Equal(geo1.Name))
@@ -1111,8 +1112,8 @@ var _ = Describe("Pool", func() {
 				Latitude:  31.231706,
 			}
 			for _, pool := range pools {
-				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.GeoDist(key, geo1.Name, geo2.Name, "km").Result()
+				Expect(pool.GeoAdd(ctx, key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoDist(ctx, key, geo1.Name, geo2.Name, "km").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(ret).To(BeNumerically(">=", 1000))
 			}
@@ -1131,8 +1132,8 @@ var _ = Describe("Pool", func() {
 				Latitude:  31.231706,
 			}
 			for _, pool := range pools {
-				Expect(pool.GeoAdd(key, geo1, geo2).Err()).NotTo(HaveOccurred())
-				ret, err := pool.GeoHash(key, geo1.Name, geo2.Name).Result()
+				Expect(pool.GeoAdd(ctx, key, geo1, geo2).Err()).NotTo(HaveOccurred())
+				ret, err := pool.GeoHash(ctx, key, geo1.Name, geo2.Name).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(ret)).To(Equal(2))
 				Expect([]byte(ret[0])[0]).To(Equal([]byte(ret[1])[0]))
@@ -1143,13 +1144,13 @@ var _ = Describe("Pool", func() {
 	Describe("ZSet Commands", func() {
 		It("ZAdd/ZScore", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd("key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				score, err := pool.ZScore("key", "one").Result()
+				score, err := pool.ZScore(ctx, "key", "one").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(score).To(Equal(float64(1)))
 			}
@@ -1157,32 +1158,32 @@ var _ = Describe("Pool", func() {
 
 		It("ZAddXX", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAddXX("key", &redis.Z{
+				_, err := pool.ZAddXX(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				_, err = pool.ZScore("key", "one").Result()
+				_, err = pool.ZScore(ctx, "key", "one").Result()
 				Expect(err).To(Equal(redis.Nil))
 			}
 		})
 
 		It("ZAddNX", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAddNX("key", &redis.Z{
+				_, err := pool.ZAddNX(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				_, err = pool.ZAddNX("key", &redis.Z{
+				_, err = pool.ZAddNX(ctx, "key", &redis.Z{
 					Score:  2,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				score, err := pool.ZScore("key", "one").Result()
+				score, err := pool.ZScore(ctx, "key", "one").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(score).To(Equal(float64(1)))
 			}
@@ -1190,13 +1191,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZAddCh", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd("key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				ch, err := pool.ZAdd("key", &redis.Z{
+				ch, err := pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  2,
 					Member: "one",
 				}, &redis.Z{
@@ -1210,13 +1211,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZIncr", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd("key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				score, err := pool.ZIncr("key", &redis.Z{
+				score, err := pool.ZIncr(ctx, "key", &redis.Z{
 					Score:  2,
 					Member: "one",
 				}).Result()
@@ -1227,20 +1228,20 @@ var _ = Describe("Pool", func() {
 
 		It("ZIncrNX", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd("key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				score, err := pool.ZIncrNX("key", &redis.Z{
+				score, err := pool.ZIncrNX(ctx, "key", &redis.Z{
 					Score:  2,
 					Member: "two",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(score).To(Equal(float64(2)))
 
-				_, err = pool.ZIncrNX("key", &redis.Z{
+				_, err = pool.ZIncrNX(ctx, "key", &redis.Z{
 					Score:  2,
 					Member: "one",
 				}).Result()
@@ -1250,19 +1251,19 @@ var _ = Describe("Pool", func() {
 
 		It("ZIncrXX", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd("key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				_, err = pool.ZIncrXX("key", &redis.Z{
+				_, err = pool.ZIncrXX(ctx, "key", &redis.Z{
 					Score:  2,
 					Member: "two",
 				}).Result()
 				Expect(err).To(Equal(redis.Nil))
 
-				score, err := pool.ZIncrXX("key", &redis.Z{
+				score, err := pool.ZIncrXX(ctx, "key", &redis.Z{
 					Score:  2,
 					Member: "one",
 				}).Result()
@@ -1273,13 +1274,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZIncrBy", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd("key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				score, err := pool.ZIncrBy("key", 2, "one").Result()
+				score, err := pool.ZIncrBy(ctx, "key", 2, "one").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(score).To(Equal(float64(3)))
 			}
@@ -1287,17 +1288,17 @@ var _ = Describe("Pool", func() {
 
 		It("ZCard", func() {
 			for _, pool := range pools {
-				card, err := pool.ZCard("key").Result()
+				card, err := pool.ZCard(ctx, "key").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(card).To(Equal(int64(0)))
 
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				card, err = pool.ZCard("key").Result()
+				card, err = pool.ZCard(ctx, "key").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(card).To(Equal(int64(1)))
 			}
@@ -1305,27 +1306,27 @@ var _ = Describe("Pool", func() {
 
 		It("ZCount", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  2,
 					Member: "two",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				count, err := pool.ZCount("key", "-inf", "+inf").Result()
+				count, err := pool.ZCount(ctx, "key", "-inf", "+inf").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(count).To(Equal(int64(3)))
 
-				count, err = pool.ZCount("key", "(1", "3").Result()
+				count, err = pool.ZCount(ctx, "key", "(1", "3").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(count).To(Equal(int64(2)))
 			}
@@ -1333,7 +1334,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZLexCount", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  0,
 					Member: "a",
 				}, &redis.Z{
@@ -1354,11 +1355,11 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				count, err := pool.ZLexCount("key", "-", "+").Result()
+				count, err := pool.ZLexCount(ctx, "key", "-", "+").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(count).To(Equal(int64(5)))
 
-				count, err = pool.ZLexCount("key", "[b", "[d").Result()
+				count, err = pool.ZLexCount(ctx, "key", "[b", "[d").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(count).To(Equal(int64(3)))
 			}
@@ -1366,7 +1367,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZPopMax", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1378,11 +1379,11 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				z, err := pool.ZPopMax("key").Result()
+				z, err := pool.ZPopMax(ctx, "key").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(z).To(Equal([]redis.Z{{Score: 3, Member: "three"}}))
 
-				z, err = pool.ZPopMax("key", 1).Result()
+				z, err = pool.ZPopMax(ctx, "key", 1).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(z).To(Equal([]redis.Z{{Score: 2, Member: "two"}}))
 			}
@@ -1390,7 +1391,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZPopMin", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1402,11 +1403,11 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				z, err := pool.ZPopMin("key").Result()
+				z, err := pool.ZPopMin(ctx, "key").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(z).To(Equal([]redis.Z{{Score: 1, Member: "one"}}))
 
-				z, err = pool.ZPopMin("key").Result()
+				z, err = pool.ZPopMin(ctx, "key").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(z).To(Equal([]redis.Z{{Score: 2, Member: "two"}}))
 			}
@@ -1414,7 +1415,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZRange", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1426,15 +1427,15 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				l, err := pool.ZRange("key", 0, -1).Result()
+				l, err := pool.ZRange(ctx, "key", 0, -1).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(l).To(Equal([]string{"one", "two", "three"}))
 
-				l, err = pool.ZRange("key", 2, 3).Result()
+				l, err = pool.ZRange(ctx, "key", 2, 3).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(l).To(Equal([]string{"three"}))
 
-				l, err = pool.ZRange("key", -2, -1).Result()
+				l, err = pool.ZRange(ctx, "key", -2, -1).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(l).To(Equal([]string{"two", "three"}))
 			}
@@ -1442,17 +1443,17 @@ var _ = Describe("Pool", func() {
 
 		It("ZRangeWithScores", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd("key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "uno",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  2,
 					Member: "two",
 				}, &redis.Z{
@@ -1461,7 +1462,7 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				l, err := pool.ZRangeWithScores("key", 0, -1).Result()
+				l, err := pool.ZRangeWithScores(ctx, "key", 0, -1).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(l[0]).To(Equal(redis.Z{Score: 1, Member: "one"}))
 				Expect(l[1]).To(Equal(redis.Z{Score: 1, Member: "uno"}))
@@ -1472,7 +1473,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZRangeByScore", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1484,14 +1485,14 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				l, err := pool.ZRangeByScore("key", &redis.ZRangeBy{
+				l, err := pool.ZRangeByScore(ctx, "key", &redis.ZRangeBy{
 					Min: "-inf",
 					Max: "+inf",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(l).To(Equal([]string{"one", "two", "three"}))
 
-				l, err = pool.ZRangeByScore("key", &redis.ZRangeBy{
+				l, err = pool.ZRangeByScore(ctx, "key", &redis.ZRangeBy{
 					Min: "(1",
 					Max: "2",
 				}).Result()
@@ -1502,7 +1503,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZRangeByLex", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  0,
 					Member: "a",
 				}, &redis.Z{
@@ -1517,14 +1518,14 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				l, err := pool.ZRangeByLex("key", &redis.ZRangeBy{
+				l, err := pool.ZRangeByLex(ctx, "key", &redis.ZRangeBy{
 					Min: "-",
 					Max: "[c",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(l).To(Equal([]string{"a", "b", "c"}))
 
-				l, err = pool.ZRangeByLex("key", &redis.ZRangeBy{
+				l, err = pool.ZRangeByLex(ctx, "key", &redis.ZRangeBy{
 					Min: "[aaa",
 					Max: "(d",
 				}).Result()
@@ -1535,7 +1536,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZRank", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1547,7 +1548,7 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				rank, err := pool.ZRank("key", "two").Result()
+				rank, err := pool.ZRank(ctx, "key", "two").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rank).To(Equal(int64(1)))
 			}
@@ -1555,7 +1556,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZRem", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1567,17 +1568,17 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				_, err := pool.ZRem("key", "two").Result()
+				_, err := pool.ZRem(ctx, "key", "two").Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				_, err = pool.ZRank("key", "two").Result()
+				_, err = pool.ZRank(ctx, "key", "two").Result()
 				Expect(err).To(Equal(redis.Nil))
 			}
 		})
 
 		It("ZRemRangeByRank", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1589,7 +1590,7 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				count, err := pool.ZRemRangeByRank("key", 1, 2).Result()
+				count, err := pool.ZRemRangeByRank(ctx, "key", 1, 2).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(count).To(Equal(int64(2)))
 			}
@@ -1597,7 +1598,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZRemRangeByScore", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1609,7 +1610,7 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				count, err := pool.ZRemRangeByScore("key", "1", "1.9").Result()
+				count, err := pool.ZRemRangeByScore(ctx, "key", "1", "1.9").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(count).To(Equal(int64(1)))
 			}
@@ -1617,7 +1618,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZRemRangeByLex", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", &redis.Z{
 					Score:  1,
 					Member: "a",
 				}, &redis.Z{
@@ -1629,7 +1630,7 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				count, err := pool.ZRemRangeByLex("key", "(a", "(c").Result()
+				count, err := pool.ZRemRangeByLex(ctx, "key", "(a", "(c").Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(count).To(Equal(int64(1)))
 			}
@@ -1637,7 +1638,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZInterStore", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("set1", &redis.Z{
+				_, err = pool.ZAdd(ctx, "set1", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1646,7 +1647,7 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				_, err = pool.ZAdd("set2", &redis.Z{
+				_, err = pool.ZAdd(ctx, "set2", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1658,14 +1659,14 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				count, err := pool.ZInterStore("out", &redis.ZStore{
+				count, err := pool.ZInterStore(ctx, "out", &redis.ZStore{
 					Keys:    []string{"set1", "set2"},
 					Weights: []float64{2, 3},
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(count).To(Equal(int64(2)))
 
-				out, err := pool.ZRangeWithScores("out", 0, -1).Result()
+				out, err := pool.ZRangeWithScores(ctx, "out", 0, -1).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(out).To(Equal([]redis.Z{
 					{Score: 5, Member: "one"},
@@ -1678,7 +1679,7 @@ var _ = Describe("Pool", func() {
 			pool := shardPool
 			set1 := "aset"
 			set2 := "iset"
-			_, err = pool.ZAdd(set1, &redis.Z{
+			_, err = pool.ZAdd(ctx, set1, &redis.Z{
 				Score:  1,
 				Member: "one",
 			}, &redis.Z{
@@ -1687,7 +1688,7 @@ var _ = Describe("Pool", func() {
 			}).Result()
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = pool.ZAdd(set2, &redis.Z{
+			_, err = pool.ZAdd(ctx, set2, &redis.Z{
 				Score:  1,
 				Member: "one",
 			}, &redis.Z{
@@ -1699,7 +1700,7 @@ var _ = Describe("Pool", func() {
 			}).Result()
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err := pool.ZInterStore("out", &redis.ZStore{
+			_, err := pool.ZInterStore(ctx, "out", &redis.ZStore{
 				Keys:    []string{set1, set2},
 				Weights: []float64{2, 3},
 			}).Result()
@@ -1708,7 +1709,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZUnionStore", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd("set1", &redis.Z{
+				_, err = pool.ZAdd(ctx, "set1", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1717,7 +1718,7 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				_, err = pool.ZAdd("set2", &redis.Z{
+				_, err = pool.ZAdd(ctx, "set2", &redis.Z{
 					Score:  1,
 					Member: "one",
 				}, &redis.Z{
@@ -1729,14 +1730,14 @@ var _ = Describe("Pool", func() {
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				count, err := pool.ZUnionStore("out", &redis.ZStore{
+				count, err := pool.ZUnionStore(ctx, "out", &redis.ZStore{
 					Keys:    []string{"set1", "set2"},
 					Weights: []float64{2, 3},
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(count).To(Equal(int64(3)))
 
-				out, err := pool.ZRangeWithScores("out", 0, -1).Result()
+				out, err := pool.ZRangeWithScores(ctx, "out", 0, -1).Result()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(out).To(Equal([]redis.Z{
 					{Score: 5, Member: "one"},
@@ -1750,7 +1751,7 @@ var _ = Describe("Pool", func() {
 			pool := shardPool
 			set1 := "aset"
 			set2 := "iset"
-			_, err = pool.ZAdd(set1, &redis.Z{
+			_, err = pool.ZAdd(ctx, set1, &redis.Z{
 				Score:  1,
 				Member: "one",
 			}, &redis.Z{
@@ -1759,7 +1760,7 @@ var _ = Describe("Pool", func() {
 			}).Result()
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = pool.ZAdd(set2, &redis.Z{
+			_, err = pool.ZAdd(ctx, set2, &redis.Z{
 				Score:  1,
 				Member: "one",
 			}, &redis.Z{
@@ -1771,7 +1772,7 @@ var _ = Describe("Pool", func() {
 			}).Result()
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err := pool.ZUnionStore("out", &redis.ZStore{
+			_, err := pool.ZUnionStore(ctx, "out", &redis.ZStore{
 				Keys:    []string{set1, set2},
 				Weights: []float64{2, 3},
 			}).Result()
@@ -1785,12 +1786,14 @@ var _ = Describe("Pool_GD", func() {
 	var err error
 	var pools []*Pool
 
+	ctx := context.Background()
+
 	BeforeEach(func() {
 		haConfig := &HAConfig{
-			Master: "127.0.0.1:8379",
+			Master: "minikube:8379",
 		}
 		haConfig1 := &HAConfig{
-			Master: "127.0.0.1:8384",
+			Master: "minikube:8384",
 		}
 
 		shardPool, err = NewShard(&ShardConfig{
@@ -1803,10 +1806,10 @@ var _ = Describe("Pool_GD", func() {
 		shards := shardPool.connFactory.(*ShardConnFactory).shards
 		for _, shard := range shards {
 			master, _ := shard.getMasterConn()
-			if master.Options().Addr == "127.0.0.1:8384" {
-				master.Shutdown()
+			if master.Options().Addr == "minikube:8384" {
+				master.Shutdown(ctx)
 			} else {
-				Expect(master.FlushDB().Err()).NotTo(HaveOccurred())
+				Expect(master.FlushDB(ctx).Err()).NotTo(HaveOccurred())
 			}
 		}
 		pools = []*Pool{shardPool}
@@ -1824,22 +1827,21 @@ var _ = Describe("Pool_GD", func() {
 				keys = append(keys, kvs[i])
 			}
 			for _, pool := range pools {
-				statuses := pool.MSetWithGD(kvs)
+				statuses := pool.MSetWithGD(ctx, kvs)
 				time.Sleep(10 * time.Millisecond)
 				sort.Slice(statuses, func(i, j int) bool {
 					return statuses[i].Err() == nil
 				})
 				Expect(statuses[0].Err()).NotTo(HaveOccurred())
-				Expect(statuses[1].Err()).To(Equal(errors.New("EOF")))
+				Expect(statuses[1].Err()).To(HaveOccurred())
 				mgetKeys := append(keys, "e3")
-				vals, keyErrors := pool.MGetWithGD(context.Background(), mgetKeys...)
+				vals, keyErrors := pool.MGetWithGD(ctx, mgetKeys...)
 				time.Sleep(10 * time.Millisecond)
 				Expect(vals).To(Equal([]interface{}{nil, "b3", nil, "d3", nil}))
-				Expect(keyErrors).To(Equal(map[string]error{
-					"a3": errors.New("EOF"),
-					"c3": errors.New("EOF"),
-				}))
-				pool.Del(keys...)
+				Expect(keyErrors).Should(HaveKey("a3"))
+				Expect(keyErrors).Should(HaveKey("c3"))
+				Expect(keyErrors).Should(HaveKey("e3"))
+				_, _ = pool.Del(ctx, keys...)
 			}
 		})
 	})

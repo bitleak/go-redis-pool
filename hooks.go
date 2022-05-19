@@ -4,7 +4,7 @@ import (
 	"context"
 	"net"
 
-	redis "github.com/go-redis/redis/v7"
+	"github.com/go-redis/redis/v8"
 )
 
 type failureHook struct {

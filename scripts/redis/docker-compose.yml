@@ -2,34 +2,33 @@ version: '2'
 
 services:
   redis_master_1:
-    image: redis:5
+    image: redis:latest
     ports:
       - "8379:6379"
 
   redis_master_1_slave_1:
-    image: redis:5
+    image: redis:latest
     command: redis-server --slaveof redis_master_1 6379
     ports:
       - "8380:6379"
 
   redis_master_1_slave_2:
-    image: redis:5
+    image: redis:latest
     command: redis-server --slaveof redis_master_1 6379
     ports:
       - "8381:6379"
 
   redis_master_2:
-    image: redis:5
+    image: redis:latest
     ports:
       - "8382:6379"
-
   redis_master_2_slave_1:
-    image: redis:5
+    image: redis:latest
     command: redis-server --slaveof redis_master_2 6379
     ports:
       - "8383:6379"
 
   redis_master_3:
-    image: redis:5
+    image: redis:latest
     ports:
       - "8384:6379"

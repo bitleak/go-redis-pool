@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	pool "github.com/bitleak/go-redis-pool"
+	"github.com/bitleak/go-redis-pool/hashkit"
 )
 
 func main() {
-	pool, err := pool.NewShard(&pool.ShardConfig{
+	ctx := context.Background()
+	p, err := pool.NewShard(&pool.ShardConfig{
 		Shards: []*pool.HAConfig{
 			// shard 1
 			{
@@ -19,7 +22,6 @@ func main() {
 				Password:         "", // set master password
 				ReadonlyPassword: "", // use password if no set
 			},
-
 			// shard 2
 			{
 				Master: "127.0.0.1:6382",
@@ -30,10 +32,13 @@ func main() {
 				ReadonlyPassword: "", // use password if no set
 			},
 		},
+		// better distribution
+		DistributeType: pool.DistributeByModular,
+		HashFn:         hashkit.Xxh3,
 	})
 	if err != nil {
-		// log the error
+		fmt.Println(err)
 	}
-	pool.Set("foo", "bar", 0)
-	fmt.Println(pool.Get("pool"))
+	p.Set(ctx, "foo", "bar", 0)
+	fmt.Println(p.Get(ctx, "pool"))
 }

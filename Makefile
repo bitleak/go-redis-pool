@@ -26,7 +26,7 @@ lint:
 	@[ ! -s lint.log ]
 
 setup-redis: nop
-	cd scripts/redis && docker-compose up -d && cd ../..
+	cd scripts/redis && docker-compose up -d && sleep 5 && docker-compose ps && cd ../..
 
 teardown-redis: nop
 	cd scripts/redis && docker-compose down && cd ../..

@@ -7,15 +7,7 @@ import (
 	"sync"
 	"time"
 
-	redis "github.com/go-redis/redis/v7"
-)
-
-const (
-	statusCmdType = iota + 1
-	stringCmdType
-	intCmdType
-	floatCmdType
-	boolCmdType
+	"github.com/go-redis/redis/v8"
 )
 
 const (
@@ -192,12 +184,12 @@ func (p *Pool) Pipeline() (redis.Pipeliner, error) {
 	return conn.Pipeline(), nil
 }
 
-func (p *Pool) Pipelined(fn func(redis.Pipeliner) error) ([]redis.Cmder, error) {
+func (p *Pool) Pipelined(ctx context.Context, fn func(redis.Pipeliner) error) ([]redis.Cmder, error) {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return nil, errShardPoolUnSupported
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.Pipelined(fn)
+	return conn.Pipelined(ctx, fn)
 }
 
 func (p *Pool) TxPipeline() (redis.Pipeliner, error) {
@@ -208,116 +200,116 @@ func (p *Pool) TxPipeline() (redis.Pipeliner, error) {
 	return conn.TxPipeline(), nil
 }
 
-func (p *Pool) TxPipelined(fn func(redis.Pipeliner) error) ([]redis.Cmder, error) {
+func (p *Pool) TxPipelined(ctx context.Context, fn func(redis.Pipeliner) error) ([]redis.Cmder, error) {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return nil, errShardPoolUnSupported
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.TxPipelined(fn)
+	return conn.TxPipelined(ctx, fn)
 }
 
-func (p *Pool) Ping() *redis.StatusCmd {
+func (p *Pool) Ping(ctx context.Context) *redis.StatusCmd {
 	// FIXME: use config to determine whether no key would access the master
 	conn, err := p.connFactory.getMasterConn()
 	if err != nil {
 		return newErrorStatusCmd(err)
 	}
-	return conn.Ping()
+	return conn.Ping(ctx)
 }
 
-func (p *Pool) Get(key string) *redis.StringCmd {
+func (p *Pool) Get(ctx context.Context, key string) *redis.StringCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.Get(key)
+	return conn.Get(ctx, key)
 }
 
-func (p *Pool) Set(key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
+func (p *Pool) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorStatusCmd(err)
 	}
-	return conn.Set(key, value, expiration)
+	return conn.Set(ctx, key, value, expiration)
 }
 
-func (p *Pool) SetNX(key string, value interface{}, expiration time.Duration) *redis.BoolCmd {
+func (p *Pool) SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorBoolCmd(err)
 	}
-	return conn.SetNX(key, value, expiration)
+	return conn.SetNX(ctx, key, value, expiration)
 }
 
-func (p *Pool) SetXX(key string, value interface{}, expiration time.Duration) *redis.BoolCmd {
+func (p *Pool) SetXX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorBoolCmd(err)
 	}
-	return conn.SetXX(key, value, expiration)
+	return conn.SetXX(ctx, key, value, expiration)
 }
 
-func (p *Pool) SetRange(key string, offset int64, value string) *redis.IntCmd {
+func (p *Pool) SetRange(ctx context.Context, key string, offset int64, value string) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.SetRange(key, offset, value)
+	return conn.SetRange(ctx, key, offset, value)
 }
 
-func (p *Pool) StrLen(key string) *redis.IntCmd {
+func (p *Pool) StrLen(ctx context.Context, key string) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.StrLen(key)
+	return conn.StrLen(ctx, key)
 }
 
-func (p *Pool) Echo(message interface{}) *redis.StringCmd {
+func (p *Pool) Echo(ctx context.Context, message interface{}) *redis.StringCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorStringCmd(errShardPoolUnSupported)
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.Echo(message)
+	return conn.Echo(ctx, message)
 }
 
-func (p *Pool) Del(keys ...string) (int64, error) {
+func (p *Pool) Del(ctx context.Context, keys ...string) (int64, error) {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.Del(keys...).Result()
+		return conn.Del(ctx, keys...).Result()
 	}
 
 	fn := func(factory *ShardConnFactory, keyList ...string) redis.Cmder {
 		conn, _ := factory.getMasterConn(keyList[0])
-		return conn.Del(keyList...)
+		return conn.Del(ctx, keyList...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	return factory.doMultiIntCommand(fn, keys...)
 }
 
-func (p *Pool) Unlink(keys ...string) (int64, error) {
+func (p *Pool) Unlink(ctx context.Context, keys ...string) (int64, error) {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.Unlink(keys...).Result()
+		return conn.Unlink(ctx, keys...).Result()
 	}
 
 	fn := func(factory *ShardConnFactory, keyList ...string) redis.Cmder {
 		conn, _ := factory.getMasterConn(keyList[0])
-		return conn.Unlink(keyList...)
+		return conn.Unlink(ctx, keyList...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	return factory.doMultiIntCommand(fn, keys...)
 }
 
-func (p *Pool) Touch(keys ...string) (int64, error) {
+func (p *Pool) Touch(ctx context.Context, keys ...string) (int64, error) {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.Touch(keys...).Result()
+		return conn.Touch(ctx, keys...).Result()
 	}
 
 	fn := func(factory *ShardConnFactory, keyList ...string) redis.Cmder {
 		conn, _ := factory.getMasterConn(keyList[0])
-		return conn.Touch(keyList...)
+		return conn.Touch(ctx, keyList...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	return factory.doMultiIntCommand(fn, keys...)
@@ -329,7 +321,7 @@ func (p *Pool) MGetWithGD(ctx context.Context, keys ...string) ([]interface{}, m
 
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		vals, err := conn.MGet(keys...).Result()
+		vals, err := conn.MGet(ctx, keys...).Result()
 		if err != nil {
 			for _, key := range keys {
 				keyErrors[key] = err
@@ -344,7 +336,7 @@ func (p *Pool) MGetWithGD(ctx context.Context, keys ...string) ([]interface{}, m
 		if err != nil {
 			return newErrorCmd(err)
 		}
-		return conn.WithContext(ctx).MGet(keyList...)
+		return conn.MGet(ctx, keyList...)
 	}
 
 	factory := p.connFactory.(*ShardConnFactory)
@@ -376,8 +368,8 @@ func (p *Pool) MGetWithGD(ctx context.Context, keys ...string) ([]interface{}, m
 	return vals, keyErrors
 }
 
-func (p *Pool) MGet(keys ...string) ([]interface{}, error) {
-	vals, keyErrors := p.MGetWithGD(context.Background(), keys...)
+func (p *Pool) MGet(ctx context.Context, keys ...string) ([]interface{}, error) {
+	vals, keyErrors := p.MGetWithGD(ctx, keys...)
 	if len(keyErrors) != 0 {
 		for _, err := range keyErrors {
 			return nil, err
@@ -407,10 +399,10 @@ func appendArgs(dst, src []interface{}) []interface{} {
 }
 
 // MSetWithGD is like MSet but gives the result for each group of keys
-func (p *Pool) MSetWithGD(values ...interface{}) []*redis.StatusCmd {
+func (p *Pool) MSetWithGD(ctx context.Context, values ...interface{}) []*redis.StatusCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return []*redis.StatusCmd{conn.MSet(values...)}
+		return []*redis.StatusCmd{conn.MSet(ctx, values...)}
 	}
 
 	args := make([]interface{}, 0, len(values))
@@ -436,7 +428,7 @@ func (p *Pool) MSetWithGD(values ...interface{}) []*redis.StatusCmd {
 		conn, _ := factory.shards[ind].getMasterConn()
 		go func(conn *redis.Client, vals ...interface{}) {
 			defer wg.Done()
-			status := conn.MSet(vals...)
+			status := conn.MSet(ctx, vals...)
 			mu.Lock()
 			result = append(result, status)
 			mu.Unlock()
@@ -450,9 +442,9 @@ func (p *Pool) MSetWithGD(values ...interface{}) []*redis.StatusCmd {
 //   - MSet("key1", "value1", "key2", "value2")
 //   - MSet([]string{"key1", "value1", "key2", "value2"})
 //   - MSet(map[string]interface{}{"key1": "value1", "key2": "value2"})
-func (p *Pool) MSet(values ...interface{}) *redis.StatusCmd {
+func (p *Pool) MSet(ctx context.Context, values ...interface{}) *redis.StatusCmd {
 	var result *redis.StatusCmd
-	statuses := p.MSetWithGD(values...)
+	statuses := p.MSetWithGD(ctx, values...)
 	for _, status := range statuses {
 		if result == nil || status.Err() != nil {
 			result = status
@@ -465,10 +457,10 @@ func (p *Pool) MSet(values ...interface{}) *redis.StatusCmd {
 //   - MSetNX("key1", "value1", "key2", "value2")
 //   - MSetNX([]string{"key1", "value1", "key2", "value2"})
 //   - MSetNX(map[string]interface{}{"key1": "value1", "key2": "value2"})
-func (p *Pool) MSetNX(values ...interface{}) *redis.BoolCmd {
+func (p *Pool) MSetNX(ctx context.Context, values ...interface{}) *redis.BoolCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.MSetNX(values...)
+		return conn.MSetNX(ctx, values...)
 	}
 
 	args := make([]interface{}, 0, len(values))
@@ -487,21 +479,21 @@ func (p *Pool) MSetNX(values ...interface{}) *redis.BoolCmd {
 		return newErrorBoolCmd(errCrossMultiShards)
 	}
 	conn, _ := factory.getMasterConn(keys[0])
-	return conn.MSetNX(values...)
+	return conn.MSetNX(ctx, values...)
 }
 
-func (p *Pool) Dump(key string) *redis.StringCmd {
+func (p *Pool) Dump(ctx context.Context, key string) *redis.StringCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.Dump(key)
+	return conn.Dump(ctx, key)
 }
 
-func (p *Pool) Exists(keys ...string) (int64, error) {
+func (p *Pool) Exists(ctx context.Context, keys ...string) (int64, error) {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.Exists(keys...).Result()
+		return conn.Exists(ctx, keys...).Result()
 	}
 
 	fn := func(factory *ShardConnFactory, keyList ...string) redis.Cmder {
@@ -509,61 +501,61 @@ func (p *Pool) Exists(keys ...string) (int64, error) {
 		if err != nil {
 			return newErrorCmd(err)
 		}
-		return conn.Exists(keyList...)
+		return conn.Exists(ctx, keyList...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	return factory.doMultiIntCommand(fn, keys...)
 }
 
-func (p *Pool) Expire(key string, expiration time.Duration) *redis.BoolCmd {
+func (p *Pool) Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorBoolCmd(err)
 	}
-	return conn.Expire(key, expiration)
+	return conn.Expire(ctx, key, expiration)
 }
 
-func (p *Pool) ExpireAt(key string, tm time.Time) *redis.BoolCmd {
+func (p *Pool) ExpireAt(ctx context.Context, key string, tm time.Time) *redis.BoolCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorBoolCmd(err)
 	}
-	return conn.ExpireAt(key, tm)
+	return conn.ExpireAt(ctx, key, tm)
 }
 
-func (p *Pool) TTL(key string) *redis.DurationCmd {
+func (p *Pool) TTL(ctx context.Context, key string) *redis.DurationCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorDurationCmd(err)
 	}
-	return conn.TTL(key)
+	return conn.TTL(ctx, key)
 }
 
-func (p *Pool) ObjectRefCount(key string) *redis.IntCmd {
+func (p *Pool) ObjectRefCount(ctx context.Context, key string) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ObjectRefCount(key)
+	return conn.ObjectRefCount(ctx, key)
 }
 
-func (p *Pool) ObjectEncoding(key string) *redis.StringCmd {
+func (p *Pool) ObjectEncoding(ctx context.Context, key string) *redis.StringCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.ObjectEncoding(key)
+	return conn.ObjectEncoding(ctx, key)
 }
 
-func (p *Pool) ObjectIdleTime(key string) *redis.DurationCmd {
+func (p *Pool) ObjectIdleTime(ctx context.Context, key string) *redis.DurationCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorDurationCmd(err)
 	}
-	return conn.ObjectIdleTime(key)
+	return conn.ObjectIdleTime(ctx, key)
 }
 
-func (p *Pool) Rename(key, newkey string) *redis.StatusCmd {
+func (p *Pool) Rename(ctx context.Context, key, newkey string) *redis.StatusCmd {
 	if factory, ok := p.connFactory.(*ShardConnFactory); ok {
 		if factory.isCrossMultiShards(key, newkey) {
 			return newErrorStatusCmd(errCrossMultiShards)
@@ -573,10 +565,10 @@ func (p *Pool) Rename(key, newkey string) *redis.StatusCmd {
 	if err != nil {
 		return newErrorStatusCmd(err)
 	}
-	return conn.Rename(key, newkey)
+	return conn.Rename(ctx, key, newkey)
 }
 
-func (p *Pool) RenameNX(key, newkey string) *redis.BoolCmd {
+func (p *Pool) RenameNX(ctx context.Context, key, newkey string) *redis.BoolCmd {
 	if factory, ok := p.connFactory.(*ShardConnFactory); ok {
 		ind := factory.cfg.HashFn([]byte(key)) % uint32(len(factory.shards))
 		newInd := factory.cfg.HashFn([]byte(newkey)) % uint32(len(factory.shards))
@@ -588,21 +580,21 @@ func (p *Pool) RenameNX(key, newkey string) *redis.BoolCmd {
 	if err != nil {
 		return newErrorBoolCmd(err)
 	}
-	return conn.RenameNX(key, newkey)
+	return conn.RenameNX(ctx, key, newkey)
 }
 
-func (p *Pool) Sort(key string, sort *redis.Sort) *redis.StringSliceCmd {
+func (p *Pool) Sort(ctx context.Context, key string, sort *redis.Sort) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.Sort(key, sort)
+	return conn.Sort(ctx, key, sort)
 }
 
-func (p *Pool) SortStore(key, store string, sort *redis.Sort) *redis.IntCmd {
+func (p *Pool) SortStore(ctx context.Context, key, store string, sort *redis.Sort) *redis.IntCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.SortStore(key, store, sort)
+		return conn.SortStore(ctx, key, store, sort)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(key, store) {
@@ -612,90 +604,90 @@ func (p *Pool) SortStore(key, store string, sort *redis.Sort) *redis.IntCmd {
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.SortStore(key, store, sort)
+	return conn.SortStore(ctx, key, store, sort)
 }
 
-func (p *Pool) SortInterfaces(key string, sort *redis.Sort) *redis.SliceCmd {
+func (p *Pool) SortInterfaces(ctx context.Context, key string, sort *redis.Sort) *redis.SliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorSliceCmd(err)
 	}
-	return conn.SortInterfaces(key, sort)
+	return conn.SortInterfaces(ctx, key, sort)
 }
 
-func (p *Pool) Eval(script string, keys []string, args ...interface{}) *redis.Cmd {
+func (p *Pool) Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorCmd(errShardPoolUnSupported)
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.Eval(script, keys, args...)
+	return conn.Eval(ctx, script, keys, args...)
 }
 
-func (p *Pool) EvalSha(sha1 string, keys []string, args ...interface{}) *redis.Cmd {
+func (p *Pool) EvalSha(ctx context.Context, sha1 string, keys []string, args ...interface{}) *redis.Cmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorCmd(errShardPoolUnSupported)
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.EvalSha(sha1, keys, args...)
+	return conn.EvalSha(ctx, sha1, keys, args...)
 }
 
-func (p *Pool) ScriptExists(hashes ...string) *redis.BoolSliceCmd {
+func (p *Pool) ScriptExists(ctx context.Context, hashes ...string) *redis.BoolSliceCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorBoolSliceCmd(errShardPoolUnSupported)
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.ScriptExists(hashes...)
+	return conn.ScriptExists(ctx, hashes...)
 }
 
-func (p *Pool) ScriptFlush() *redis.StatusCmd {
+func (p *Pool) ScriptFlush(ctx context.Context) *redis.StatusCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorStatusCmd(errShardPoolUnSupported)
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.ScriptFlush()
+	return conn.ScriptFlush(ctx)
 }
 
-func (p *Pool) ScriptKill() *redis.StatusCmd {
+func (p *Pool) ScriptKill(ctx context.Context) *redis.StatusCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorStatusCmd(errShardPoolUnSupported)
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.ScriptKill()
+	return conn.ScriptKill(ctx)
 }
 
-func (p *Pool) ScriptLoad(script string) *redis.StringCmd {
+func (p *Pool) ScriptLoad(ctx context.Context, script string) *redis.StringCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorStringCmd(errShardPoolUnSupported)
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.ScriptLoad(script)
+	return conn.ScriptLoad(ctx, script)
 }
 
-func (p *Pool) DebugObject(key string) *redis.StringCmd {
+func (p *Pool) DebugObject(ctx context.Context, key string) *redis.StringCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.DebugObject(key)
+	return conn.DebugObject(ctx, key)
 }
 
-func (p *Pool) MemoryUsage(key string, samples ...int) *redis.IntCmd {
+func (p *Pool) MemoryUsage(ctx context.Context, key string, samples ...int) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.MemoryUsage(key, samples...)
+	return conn.MemoryUsage(ctx, key, samples...)
 }
 
-func (p *Pool) Publish(channel string, message interface{}) *(redis.IntCmd) {
+func (p *Pool) Publish(ctx context.Context, channel string, message interface{}) *redis.IntCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorIntCmd(errShardPoolUnSupported)
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.Publish(channel, message)
+	return conn.Publish(ctx, channel, message)
 }
 
-func (p *Pool) PubSubChannels(pattern string) *redis.StringSliceCmd {
+func (p *Pool) PubSubChannels(ctx context.Context, pattern string) *redis.StringSliceCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorStringSliceCmd(errShardPoolUnSupported)
 	}
@@ -703,10 +695,10 @@ func (p *Pool) PubSubChannels(pattern string) *redis.StringSliceCmd {
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.PubSubChannels(pattern)
+	return conn.PubSubChannels(ctx, pattern)
 }
 
-func (p *Pool) PubSubNumSub(channels ...string) *redis.StringIntMapCmd {
+func (p *Pool) PubSubNumSub(ctx context.Context, channels ...string) *redis.StringIntMapCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorStringIntMapCmd(errShardPoolUnSupported)
 	}
@@ -714,10 +706,10 @@ func (p *Pool) PubSubNumSub(channels ...string) *redis.StringIntMapCmd {
 	if err != nil {
 		return newErrorStringIntMapCmd(err)
 	}
-	return conn.PubSubNumSub(channels...)
+	return conn.PubSubNumSub(ctx, channels...)
 }
 
-func (p *Pool) PubSubNumPat() *redis.IntCmd {
+func (p *Pool) PubSubNumPat(ctx context.Context) *redis.IntCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorIntCmd(errShardPoolUnSupported)
 	}
@@ -725,18 +717,18 @@ func (p *Pool) PubSubNumPat() *redis.IntCmd {
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.PubSubNumPat()
+	return conn.PubSubNumPat(ctx)
 }
 
-func (p *Pool) Type(key string) *redis.StatusCmd {
+func (p *Pool) Type(ctx context.Context, key string) *redis.StatusCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStatusCmd(err)
 	}
-	return conn.Type(key)
+	return conn.Type(ctx, key)
 }
 
-func (p *Pool) Scan(cursor uint64, match string, count int64) *redis.ScanCmd {
+func (p *Pool) Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorScanCmd(errShardPoolUnSupported)
 	}
@@ -744,98 +736,98 @@ func (p *Pool) Scan(cursor uint64, match string, count int64) *redis.ScanCmd {
 	if err != nil {
 		return newErrorScanCmd(err)
 	}
-	return conn.Scan(cursor, match, count)
+	return conn.Scan(ctx, cursor, match, count)
 }
 
-func (p *Pool) SScan(key string, cursor uint64, match string, count int64) *redis.ScanCmd {
+func (p *Pool) SScan(ctx context.Context, key string, cursor uint64, match string, count int64) *redis.ScanCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorScanCmd(err)
 	}
-	return conn.SScan(key, cursor, match, count)
+	return conn.SScan(ctx, key, cursor, match, count)
 }
 
-func (p *Pool) HScan(key string, cursor uint64, match string, count int64) *redis.ScanCmd {
+func (p *Pool) HScan(ctx context.Context, key string, cursor uint64, match string, count int64) *redis.ScanCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorScanCmd(err)
 	}
-	return conn.HScan(key, cursor, match, count)
+	return conn.HScan(ctx, key, cursor, match, count)
 }
 
-func (p *Pool) ZScan(key string, cursor uint64, match string, count int64) *redis.ScanCmd {
+func (p *Pool) ZScan(ctx context.Context, key string, cursor uint64, match string, count int64) *redis.ScanCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorScanCmd(err)
 	}
-	return conn.ZScan(key, cursor, match, count)
+	return conn.ZScan(ctx, key, cursor, match, count)
 }
 
-func (p *Pool) Append(key, value string) *redis.IntCmd {
+func (p *Pool) Append(ctx context.Context, key, value string) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.Append(key, value)
+	return conn.Append(ctx, key, value)
 }
 
-func (p *Pool) GetRange(key string, start, end int64) *redis.StringCmd {
+func (p *Pool) GetRange(ctx context.Context, key string, start, end int64) *redis.StringCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.GetRange(key, start, end)
+	return conn.GetRange(ctx, key, start, end)
 }
 
-func (p *Pool) GetSet(key string, value interface{}) *redis.StringCmd {
+func (p *Pool) GetSet(ctx context.Context, key string, value interface{}) *redis.StringCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.GetSet(key, value)
+	return conn.GetSet(ctx, key, value)
 }
 
-func (p *Pool) BitCount(key string, bitCount *redis.BitCount) *redis.IntCmd {
+func (p *Pool) BitCount(ctx context.Context, key string, bitCount *redis.BitCount) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.BitCount(key, bitCount)
+	return conn.BitCount(ctx, key, bitCount)
 }
 
-func (p *Pool) BitPos(key string, bit int64, pos ...int64) *redis.IntCmd {
+func (p *Pool) BitPos(ctx context.Context, key string, bit int64, pos ...int64) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.BitPos(key, bit, pos...)
+	return conn.BitPos(ctx, key, bit, pos...)
 }
 
-func (p *Pool) BitField(key string, args ...interface{}) *redis.IntSliceCmd {
+func (p *Pool) BitField(ctx context.Context, key string, args ...interface{}) *redis.IntSliceCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntSliceCmd(err)
 	}
-	return conn.BitField(key, args...)
+	return conn.BitField(ctx, key, args...)
 }
 
-func (p *Pool) GetBit(key string, offset int64) *redis.IntCmd {
+func (p *Pool) GetBit(ctx context.Context, key string, offset int64) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.GetBit(key, offset)
+	return conn.GetBit(ctx, key, offset)
 }
 
-func (p *Pool) SetBit(key string, offset int64, value int) *redis.IntCmd {
+func (p *Pool) SetBit(ctx context.Context, key string, offset int64, value int) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.SetBit(key, offset, value)
+	return conn.SetBit(ctx, key, offset, value)
 }
 
-func (p *Pool) BitOp(op int, destKey string, keys ...string) *redis.IntCmd {
+func (p *Pool) BitOp(ctx context.Context, op int, destKey string, keys ...string) *redis.IntCmd {
 	if factory, ok := p.connFactory.(*ShardConnFactory); ok {
 		allKeys := append(keys, destKey)
 		if factory.isCrossMultiShards(allKeys...) {
@@ -848,29 +840,29 @@ func (p *Pool) BitOp(op int, destKey string, keys ...string) *redis.IntCmd {
 	}
 	switch op {
 	case bitOpAnd:
-		return conn.BitOpAnd(destKey, keys...)
+		return conn.BitOpAnd(ctx, destKey, keys...)
 	case bitOpOr:
-		return conn.BitOpOr(destKey, keys...)
+		return conn.BitOpOr(ctx, destKey, keys...)
 	case bitOpXor:
-		return conn.BitOpXor(destKey, keys...)
+		return conn.BitOpXor(ctx, destKey, keys...)
 	default:
 		return newErrorIntCmd(errors.New("unknown op type"))
 	}
 }
 
-func (p *Pool) BitOpAnd(destKey string, keys ...string) *redis.IntCmd {
-	return p.BitOp(bitOpAnd, destKey, keys...)
+func (p *Pool) BitOpAnd(ctx context.Context, destKey string, keys ...string) *redis.IntCmd {
+	return p.BitOp(ctx, bitOpAnd, destKey, keys...)
 }
 
-func (p *Pool) BitOpOr(destKey string, keys ...string) *redis.IntCmd {
-	return p.BitOp(bitOpOr, destKey, keys...)
+func (p *Pool) BitOpOr(ctx context.Context, destKey string, keys ...string) *redis.IntCmd {
+	return p.BitOp(ctx, bitOpOr, destKey, keys...)
 }
 
-func (p *Pool) BitOpXor(destKey string, keys ...string) *redis.IntCmd {
-	return p.BitOp(bitOpXor, destKey, keys...)
+func (p *Pool) BitOpXor(ctx context.Context, destKey string, keys ...string) *redis.IntCmd {
+	return p.BitOp(ctx, bitOpXor, destKey, keys...)
 }
 
-func (p *Pool) BitOpNot(destKey string, key string) *redis.IntCmd {
+func (p *Pool) BitOpNot(ctx context.Context, destKey string, key string) *redis.IntCmd {
 	if factory, ok := p.connFactory.(*ShardConnFactory); ok {
 		if factory.isCrossMultiShards(destKey, key) {
 			return newErrorIntCmd(errCrossMultiShards)
@@ -880,328 +872,328 @@ func (p *Pool) BitOpNot(destKey string, key string) *redis.IntCmd {
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.BitOpNot(destKey, key)
+	return conn.BitOpNot(ctx, destKey, key)
 }
 
-func (p *Pool) Decr(key string) *redis.IntCmd {
-	return p.DecrBy(key, 1)
+func (p *Pool) Decr(ctx context.Context, key string) *redis.IntCmd {
+	return p.DecrBy(ctx, key, 1)
 }
 
-func (p *Pool) Incr(key string) *redis.IntCmd {
-	return p.DecrBy(key, -1)
+func (p *Pool) Incr(ctx context.Context, key string) *redis.IntCmd {
+	return p.DecrBy(ctx, key, -1)
 }
 
-func (p *Pool) IncrBy(key string, increment int64) *redis.IntCmd {
-	return p.DecrBy(key, -1*increment)
+func (p *Pool) IncrBy(ctx context.Context, key string, increment int64) *redis.IntCmd {
+	return p.DecrBy(ctx, key, -1*increment)
 }
 
-func (p *Pool) DecrBy(key string, decrement int64) *redis.IntCmd {
+func (p *Pool) DecrBy(ctx context.Context, key string, decrement int64) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.DecrBy(key, decrement)
+	return conn.DecrBy(ctx, key, decrement)
 }
 
-func (p *Pool) IncrByFloat(key string, value float64) *redis.FloatCmd {
+func (p *Pool) IncrByFloat(ctx context.Context, key string, value float64) *redis.FloatCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorFloatCmd(err)
 	}
-	return conn.IncrByFloat(key, value)
+	return conn.IncrByFloat(ctx, key, value)
 }
 
-func (p *Pool) HSet(key, field string, value interface{}) *redis.BoolCmd {
-	conn, err := p.connFactory.getMasterConn(key)
-	if err != nil {
-		return newErrorBoolCmd(err)
-	}
-	return conn.HSet(key, field, value)
-}
-
-func (p *Pool) HDel(key string, fields ...string) *redis.IntCmd {
+func (p *Pool) HSet(ctx context.Context, key, field string, value interface{}) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.HDel(key, fields...)
+	return conn.HSet(ctx, key, field, value)
 }
 
-func (p *Pool) HExists(key, field string) *redis.BoolCmd {
+func (p *Pool) HDel(ctx context.Context, key string, fields ...string) *redis.IntCmd {
+	conn, err := p.connFactory.getMasterConn(key)
+	if err != nil {
+		return newErrorIntCmd(err)
+	}
+	return conn.HDel(ctx, key, fields...)
+}
+
+func (p *Pool) HExists(ctx context.Context, key, field string) *redis.BoolCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorBoolCmd(err)
 	}
-	return conn.HExists(key, field)
+	return conn.HExists(ctx, key, field)
 }
 
-func (p *Pool) HGet(key, field string) *redis.StringCmd {
+func (p *Pool) HGet(ctx context.Context, key, field string) *redis.StringCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.HGet(key, field)
+	return conn.HGet(ctx, key, field)
 }
 
-func (p *Pool) HGetAll(key string) *redis.StringStringMapCmd {
+func (p *Pool) HGetAll(ctx context.Context, key string) *redis.StringStringMapCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringStringMapCmd(err)
 	}
-	return conn.HGetAll(key)
+	return conn.HGetAll(ctx, key)
 }
 
-func (p *Pool) HIncrBy(key, field string, incr int64) *redis.IntCmd {
+func (p *Pool) HIncrBy(ctx context.Context, key, field string, incr int64) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.HIncrBy(key, field, incr)
+	return conn.HIncrBy(ctx, key, field, incr)
 }
 
-func (p *Pool) HIncrByFloat(key, field string, incr float64) *redis.FloatCmd {
+func (p *Pool) HIncrByFloat(ctx context.Context, key, field string, incr float64) *redis.FloatCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorFloatCmd(err)
 	}
-	return conn.HIncrByFloat(key, field, incr)
+	return conn.HIncrByFloat(ctx, key, field, incr)
 }
 
-func (p *Pool) HKeys(key string) *redis.StringSliceCmd {
+func (p *Pool) HKeys(ctx context.Context, key string) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.HKeys(key)
+	return conn.HKeys(ctx, key)
 }
 
-func (p *Pool) HLen(key string) *redis.IntCmd {
+func (p *Pool) HLen(ctx context.Context, key string) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.HLen(key)
+	return conn.HLen(ctx, key)
 }
 
-func (p *Pool) HMGet(key string, fields ...string) *redis.SliceCmd {
+func (p *Pool) HMGet(ctx context.Context, key string, fields ...string) *redis.SliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorSliceCmd(err)
 	}
-	return conn.HMGet(key, fields...)
+	return conn.HMGet(ctx, key, fields...)
 }
 
-func (p *Pool) HMSet(key string, values ...interface{}) *redis.IntCmd {
-	conn, err := p.connFactory.getMasterConn(key)
-	if err != nil {
-		return newErrorIntCmd(err)
-	}
-	return conn.HMSet(key, values...)
-}
-
-func (p *Pool) HSetNX(key, field string, value interface{}) *redis.BoolCmd {
+func (p *Pool) HMSet(ctx context.Context, key string, values ...interface{}) *redis.BoolCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorBoolCmd(err)
 	}
-	return conn.HSetNX(key, field, value)
+	return conn.HMSet(ctx, key, values...)
 }
 
-func (p *Pool) HVals(key string) *redis.StringSliceCmd {
+func (p *Pool) HSetNX(ctx context.Context, key, field string, value interface{}) *redis.BoolCmd {
+	conn, err := p.connFactory.getMasterConn(key)
+	if err != nil {
+		return newErrorBoolCmd(err)
+	}
+	return conn.HSetNX(ctx, key, field, value)
+}
+
+func (p *Pool) HVals(ctx context.Context, key string) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.HVals(key)
+	return conn.HVals(ctx, key)
 }
 
-func (p *Pool) BLPop(timeout time.Duration, keys ...string) *redis.StringSliceCmd {
+func (p *Pool) BLPop(ctx context.Context, timeout time.Duration, keys ...string) *redis.StringSliceCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.BLPop(timeout, keys...)
+		return conn.BLPop(ctx, timeout, keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(keys...) {
 		return newErrorStringSliceCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(keys[0])
-	return conn.BLPop(timeout, keys...)
+	return conn.BLPop(ctx, timeout, keys...)
 }
 
-func (p *Pool) BRPop(timeout time.Duration, keys ...string) *redis.StringSliceCmd {
+func (p *Pool) BRPop(ctx context.Context, timeout time.Duration, keys ...string) *redis.StringSliceCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.BRPop(timeout, keys...)
+		return conn.BRPop(ctx, timeout, keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(keys...) {
 		return newErrorStringSliceCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(keys[0])
-	return conn.BRPop(timeout, keys...)
+	return conn.BRPop(ctx, timeout, keys...)
 }
 
-func (p *Pool) BRPopLPush(source, destination string, timeout time.Duration) *redis.StringCmd {
+func (p *Pool) BRPopLPush(ctx context.Context, source, destination string, timeout time.Duration) *redis.StringCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.BRPopLPush(source, destination, timeout)
+		return conn.BRPopLPush(ctx, source, destination, timeout)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(source, destination) {
 		return newErrorStringCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(source)
-	return conn.BRPopLPush(source, destination, timeout)
+	return conn.BRPopLPush(ctx, source, destination, timeout)
 }
 
-func (p *Pool) LIndex(key string, index int64) *redis.StringCmd {
+func (p *Pool) LIndex(ctx context.Context, key string, index int64) *redis.StringCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.LIndex(key, index)
+	return conn.LIndex(ctx, key, index)
 }
 
-func (p *Pool) LInsert(key, op string, pivot, value interface{}) *redis.IntCmd {
+func (p *Pool) LInsert(ctx context.Context, key, op string, pivot, value interface{}) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.LInsert(key, op, pivot, value)
+	return conn.LInsert(ctx, key, op, pivot, value)
 }
 
-func (p *Pool) LInsertBefore(key string, pivot, value interface{}) *redis.IntCmd {
-	return p.LInsert(key, "BEFORE", pivot, value)
+func (p *Pool) LInsertBefore(ctx context.Context, key string, pivot, value interface{}) *redis.IntCmd {
+	return p.LInsert(ctx, key, "BEFORE", pivot, value)
 }
 
-func (p *Pool) LInsertAfter(key string, pivot, value interface{}) *redis.IntCmd {
-	return p.LInsert(key, "AFTER", pivot, value)
+func (p *Pool) LInsertAfter(ctx context.Context, key string, pivot, value interface{}) *redis.IntCmd {
+	return p.LInsert(ctx, key, "AFTER", pivot, value)
 }
 
-func (p *Pool) LLen(key string) *redis.IntCmd {
+func (p *Pool) LLen(ctx context.Context, key string) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.LLen(key)
+	return conn.LLen(ctx, key)
 }
 
-func (p *Pool) LPop(key string) *redis.StringCmd {
+func (p *Pool) LPop(ctx context.Context, key string) *redis.StringCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.LPop(key)
+	return conn.LPop(ctx, key)
 }
 
-func (p *Pool) LPush(key string, values ...interface{}) *redis.IntCmd {
+func (p *Pool) LPush(ctx context.Context, key string, values ...interface{}) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.LPush(key, values...)
+	return conn.LPush(ctx, key, values...)
 }
 
-func (p *Pool) LPushX(key string, values ...interface{}) *redis.IntCmd {
+func (p *Pool) LPushX(ctx context.Context, key string, values ...interface{}) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.LPushX(key, values...)
+	return conn.LPushX(ctx, key, values...)
 }
 
-func (p *Pool) LRange(key string, start, stop int64) *redis.StringSliceCmd {
+func (p *Pool) LRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.LRange(key, start, stop)
+	return conn.LRange(ctx, key, start, stop)
 }
 
-func (p *Pool) LRem(key string, count int64, value interface{}) *redis.IntCmd {
+func (p *Pool) LRem(ctx context.Context, key string, count int64, value interface{}) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.LRem(key, count, value)
+	return conn.LRem(ctx, key, count, value)
 }
 
-func (p *Pool) LSet(key string, index int64, value interface{}) *redis.StatusCmd {
+func (p *Pool) LSet(ctx context.Context, key string, index int64, value interface{}) *redis.StatusCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorStatusCmd(err)
 	}
-	return conn.LSet(key, index, value)
+	return conn.LSet(ctx, key, index, value)
 }
 
-func (p *Pool) LTrim(key string, start, stop int64) *redis.StatusCmd {
+func (p *Pool) LTrim(ctx context.Context, key string, start, stop int64) *redis.StatusCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorStatusCmd(err)
 	}
-	return conn.LTrim(key, start, stop)
+	return conn.LTrim(ctx, key, start, stop)
 }
 
-func (p *Pool) RPop(key string) *redis.StringCmd {
+func (p *Pool) RPop(ctx context.Context, key string) *redis.StringCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.RPop(key)
+	return conn.RPop(ctx, key)
 }
 
-func (p *Pool) RPopLPush(source, destination string) *redis.StringCmd {
+func (p *Pool) RPopLPush(ctx context.Context, source, destination string) *redis.StringCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.RPopLPush(source, destination)
+		return conn.RPopLPush(ctx, source, destination)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(source, destination) {
 		return newErrorStringCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(source)
-	return conn.RPopLPush(source, destination)
+	return conn.RPopLPush(ctx, source, destination)
 }
 
-func (p *Pool) RPush(key string, values ...interface{}) *redis.IntCmd {
+func (p *Pool) RPush(ctx context.Context, key string, values ...interface{}) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.RPush(key, values...)
+	return conn.RPush(ctx, key, values...)
 }
 
-func (p *Pool) RPushX(key string, values ...interface{}) *redis.IntCmd {
+func (p *Pool) RPushX(ctx context.Context, key string, values ...interface{}) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.RPushX(key, values...)
+	return conn.RPushX(ctx, key, values...)
 }
 
-func (p *Pool) SAdd(key string, members ...interface{}) *redis.IntCmd {
+func (p *Pool) SAdd(ctx context.Context, key string, members ...interface{}) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.SAdd(key, members...)
+	return conn.SAdd(ctx, key, members...)
 }
 
-func (p *Pool) SCard(key string) *redis.IntCmd {
+func (p *Pool) SCard(ctx context.Context, key string) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.SCard(key)
+	return conn.SCard(ctx, key)
 }
 
-func (p *Pool) SDiff(keys ...string) *redis.StringSliceCmd {
+func (p *Pool) SDiff(ctx context.Context, keys ...string) *redis.StringSliceCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, err := p.connFactory.getSlaveConn()
 		if err != nil {
 			return newErrorStringSliceCmd(err)
 		}
-		return conn.SDiff(keys...)
+		return conn.SDiff(ctx, keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(keys...) {
@@ -1211,13 +1203,13 @@ func (p *Pool) SDiff(keys ...string) *redis.StringSliceCmd {
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.SDiff(keys...)
+	return conn.SDiff(ctx, keys...)
 }
 
-func (p *Pool) SDiffStore(destination string, keys ...string) *redis.IntCmd {
+func (p *Pool) SDiffStore(ctx context.Context, destination string, keys ...string) *redis.IntCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.SDiffStore(destination, keys...)
+		return conn.SDiffStore(ctx, destination, keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 
@@ -1225,16 +1217,16 @@ func (p *Pool) SDiffStore(destination string, keys ...string) *redis.IntCmd {
 		return newErrorIntCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(destination)
-	return conn.SDiffStore(destination, keys...)
+	return conn.SDiffStore(ctx, destination, keys...)
 }
 
-func (p *Pool) SInter(keys ...string) *redis.StringSliceCmd {
+func (p *Pool) SInter(ctx context.Context, keys ...string) *redis.StringSliceCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, err := p.connFactory.getSlaveConn()
 		if err != nil {
 			return newErrorStringSliceCmd(err)
 		}
-		return conn.SInter(keys...)
+		return conn.SInter(ctx, keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(keys...) {
@@ -1244,106 +1236,106 @@ func (p *Pool) SInter(keys ...string) *redis.StringSliceCmd {
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.SInter(keys...)
+	return conn.SInter(ctx, keys...)
 }
 
-func (p *Pool) SInterStore(destination string, keys ...string) *redis.IntCmd {
+func (p *Pool) SInterStore(ctx context.Context, destination string, keys ...string) *redis.IntCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.SInterStore(destination, keys...)
+		return conn.SInterStore(ctx, destination, keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(append(keys, destination)...) {
 		return newErrorIntCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(destination)
-	return conn.SInterStore(destination, keys...)
+	return conn.SInterStore(ctx, destination, keys...)
 }
 
-func (p *Pool) SIsMember(key string, member interface{}) *redis.BoolCmd {
+func (p *Pool) SIsMember(ctx context.Context, key string, member interface{}) *redis.BoolCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorBoolCmd(err)
 	}
-	return conn.SIsMember(key, member)
+	return conn.SIsMember(ctx, key, member)
 }
 
-func (p *Pool) SMembers(key string) *redis.StringSliceCmd {
+func (p *Pool) SMembers(ctx context.Context, key string) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.SMembers(key)
+	return conn.SMembers(ctx, key)
 }
 
-func (p *Pool) SMembersMap(key string) *redis.StringStructMapCmd {
+func (p *Pool) SMembersMap(ctx context.Context, key string) *redis.StringStructMapCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringStructMapCmd(err)
 	}
-	return conn.SMembersMap(key)
+	return conn.SMembersMap(ctx, key)
 }
 
-func (p *Pool) SMove(source, destination string, member interface{}) *redis.BoolCmd {
+func (p *Pool) SMove(ctx context.Context, source, destination string, member interface{}) *redis.BoolCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.SMove(source, destination, member)
+		return conn.SMove(ctx, source, destination, member)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(source, destination) {
 		return newErrorBoolCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(source)
-	return conn.SMove(source, destination, member)
+	return conn.SMove(ctx, source, destination, member)
 }
 
-func (p *Pool) SPop(key string) *redis.StringCmd {
+func (p *Pool) SPop(ctx context.Context, key string) *redis.StringCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.SPop(key)
+	return conn.SPop(ctx, key)
 }
 
-func (p *Pool) SPopN(key string, count int64) *redis.StringSliceCmd {
+func (p *Pool) SPopN(ctx context.Context, key string, count int64) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.SPopN(key, count)
+	return conn.SPopN(ctx, key, count)
 }
 
-func (p *Pool) SRandMember(key string) *redis.StringCmd {
+func (p *Pool) SRandMember(ctx context.Context, key string) *redis.StringCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringCmd(err)
 	}
-	return conn.SRandMember(key)
+	return conn.SRandMember(ctx, key)
 }
 
-func (p *Pool) SRandMemberN(key string, count int64) *redis.StringSliceCmd {
+func (p *Pool) SRandMemberN(ctx context.Context, key string, count int64) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.SRandMemberN(key, count)
+	return conn.SRandMemberN(ctx, key, count)
 }
 
-func (p *Pool) SRem(key string, members ...interface{}) *redis.IntCmd {
+func (p *Pool) SRem(ctx context.Context, key string, members ...interface{}) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.SRem(key, members...)
+	return conn.SRem(ctx, key, members...)
 }
 
-func (p *Pool) SUnion(keys ...string) *redis.StringSliceCmd {
+func (p *Pool) SUnion(ctx context.Context, keys ...string) *redis.StringSliceCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, err := p.connFactory.getSlaveConn()
 		if err != nil {
 			return newErrorStringSliceCmd(err)
 		}
-		return conn.SUnion(keys...)
+		return conn.SUnion(ctx, keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(keys...) {
@@ -1353,282 +1345,313 @@ func (p *Pool) SUnion(keys ...string) *redis.StringSliceCmd {
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.SUnion(keys...)
+	return conn.SUnion(ctx, keys...)
 }
 
-func (p *Pool) SUnionStore(destination string, keys ...string) *redis.IntCmd {
+func (p *Pool) SUnionStore(ctx context.Context, destination string, keys ...string) *redis.IntCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.SUnionStore(destination, keys...)
+		return conn.SUnionStore(ctx, destination, keys...)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if factory.isCrossMultiShards(append(keys, destination)...) {
 		return newErrorIntCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(destination)
-	return conn.SUnionStore(destination, keys...)
+	return conn.SUnionStore(ctx, destination, keys...)
 }
 
-func (p *Pool) ZAdd(key string, members ...*redis.Z) *redis.IntCmd {
+func (p *Pool) ZAdd(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZAdd(key, members...)
+	return conn.ZAdd(ctx, key, members...)
 }
 
-func (p *Pool) ZAddNX(key string, members ...*redis.Z) *redis.IntCmd {
+func (p *Pool) ZAddNX(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZAddNX(key, members...)
+	return conn.ZAddNX(ctx, key, members...)
 }
 
-func (p *Pool) ZAddXX(key string, members ...*redis.Z) *redis.IntCmd {
+func (p *Pool) ZAddXX(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZAddXX(key, members...)
+	return conn.ZAddXX(ctx, key, members...)
 }
 
-func (p *Pool) ZAddCh(key string, members ...*redis.Z) *redis.IntCmd {
+func (p *Pool) ZAddCh(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZAddCh(key, members...)
+	membersArg := make([]redis.Z, len(members))
+	for i, m := range members {
+		membersArg[i] = *m
+	}
+	return conn.ZAddArgs(ctx, key, redis.ZAddArgs{
+		Ch:      true,
+		Members: membersArg,
+	})
 }
 
-func (p *Pool) ZAddNXCh(key string, members ...*redis.Z) *redis.IntCmd {
+func (p *Pool) ZAddNXCh(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZAddNXCh(key, members...)
+	membersArg := make([]redis.Z, len(members))
+	for i, m := range members {
+		membersArg[i] = *m
+	}
+	return conn.ZAddArgs(ctx, key, redis.ZAddArgs{
+		NX:      true,
+		Ch:      true,
+		Members: membersArg,
+	})
 }
 
-func (p *Pool) ZAddXXCh(key string, members ...*redis.Z) *redis.IntCmd {
+func (p *Pool) ZAddXXCh(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZAddXXCh(key, members...)
+	membersArg := make([]redis.Z, len(members))
+	for i, m := range members {
+		membersArg[i] = *m
+	}
+	return conn.ZAddArgs(ctx, key, redis.ZAddArgs{
+		XX:      true,
+		Ch:      true,
+		Members: membersArg,
+	})
 }
 
-func (p *Pool) ZIncr(key string, member *redis.Z) *redis.FloatCmd {
+func (p *Pool) ZIncr(ctx context.Context, key string, member *redis.Z) *redis.FloatCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorFloatCmd(err)
 	}
-	return conn.ZIncr(key, member)
+	return conn.ZAddArgsIncr(ctx, key, redis.ZAddArgs{
+		Members: []redis.Z{*member},
+	})
 }
 
-func (p *Pool) ZIncrNX(key string, member *redis.Z) *redis.FloatCmd {
+func (p *Pool) ZIncrNX(ctx context.Context, key string, member *redis.Z) *redis.FloatCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorFloatCmd(err)
 	}
-	return conn.ZIncrNX(key, member)
+	return conn.ZAddArgsIncr(ctx, key, redis.ZAddArgs{
+		NX:      true,
+		Members: []redis.Z{*member},
+	})
 }
 
-func (p *Pool) ZIncrXX(key string, member *redis.Z) *redis.FloatCmd {
+func (p *Pool) ZIncrXX(ctx context.Context, key string, member *redis.Z) *redis.FloatCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorFloatCmd(err)
 	}
-	return conn.ZIncrXX(key, member)
+	return conn.ZAddArgsIncr(ctx, key, redis.ZAddArgs{
+		XX:      true,
+		Members: []redis.Z{*member},
+	})
 }
 
-func (p *Pool) ZCard(key string) *redis.IntCmd {
+func (p *Pool) ZCard(ctx context.Context, key string) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZCard(key)
+	return conn.ZCard(ctx, key)
 }
 
-func (p *Pool) ZCount(key, min, max string) *redis.IntCmd {
+func (p *Pool) ZCount(ctx context.Context, key, min, max string) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZCount(key, min, max)
+	return conn.ZCount(ctx, key, min, max)
 }
 
-func (p *Pool) ZLexCount(key, min, max string) *redis.IntCmd {
+func (p *Pool) ZLexCount(ctx context.Context, key, min, max string) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZLexCount(key, min, max)
+	return conn.ZLexCount(ctx, key, min, max)
 }
 
-func (p *Pool) ZIncrBy(key string, increment float64, member string) *redis.FloatCmd {
+func (p *Pool) ZIncrBy(ctx context.Context, key string, increment float64, member string) *redis.FloatCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorFloatCmd(err)
 	}
-	return conn.ZIncrBy(key, increment, member)
+	return conn.ZIncrBy(ctx, key, increment, member)
 }
 
-func (p *Pool) ZPopMax(key string, count ...int64) *redis.ZSliceCmd {
+func (p *Pool) ZPopMax(ctx context.Context, key string, count ...int64) *redis.ZSliceCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorZSliceCmd(err)
 	}
-	return conn.ZPopMax(key, count...)
+	return conn.ZPopMax(ctx, key, count...)
 }
 
-func (p *Pool) ZPopMin(key string, count ...int64) *redis.ZSliceCmd {
+func (p *Pool) ZPopMin(ctx context.Context, key string, count ...int64) *redis.ZSliceCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorZSliceCmd(err)
 	}
-	return conn.ZPopMin(key, count...)
+	return conn.ZPopMin(ctx, key, count...)
 }
 
-func (p *Pool) ZRange(key string, start, stop int64) *redis.StringSliceCmd {
+func (p *Pool) ZRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.ZRange(key, start, stop)
+	return conn.ZRange(ctx, key, start, stop)
 }
 
-func (p *Pool) ZRangeWithScores(key string, start, stop int64) *redis.ZSliceCmd {
+func (p *Pool) ZRangeWithScores(ctx context.Context, key string, start, stop int64) *redis.ZSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorZSliceCmd(err)
 	}
-	return conn.ZRangeWithScores(key, start, stop)
+	return conn.ZRangeWithScores(ctx, key, start, stop)
 }
 
-func (p *Pool) ZRangeByScore(key string, opt *redis.ZRangeBy) *redis.StringSliceCmd {
+func (p *Pool) ZRangeByScore(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.ZRangeByScore(key, opt)
+	return conn.ZRangeByScore(ctx, key, opt)
 }
 
-func (p *Pool) ZRangeByLex(key string, opt *redis.ZRangeBy) *redis.StringSliceCmd {
+func (p *Pool) ZRangeByLex(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.ZRangeByLex(key, opt)
+	return conn.ZRangeByLex(ctx, key, opt)
 }
 
-func (p *Pool) ZRangeByScoreWithScores(key string, opt *redis.ZRangeBy) *redis.ZSliceCmd {
+func (p *Pool) ZRangeByScoreWithScores(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.ZSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorZSliceCmd(err)
 	}
-	return conn.ZRangeByScoreWithScores(key, opt)
+	return conn.ZRangeByScoreWithScores(ctx, key, opt)
 }
 
-func (p *Pool) ZRank(key, member string) *redis.IntCmd {
+func (p *Pool) ZRank(ctx context.Context, key, member string) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZRank(key, member)
+	return conn.ZRank(ctx, key, member)
 }
 
-func (p *Pool) ZRem(key string, members ...interface{}) *redis.IntCmd {
+func (p *Pool) ZRem(ctx context.Context, key string, members ...interface{}) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZRem(key, members...)
+	return conn.ZRem(ctx, key, members...)
 }
 
-func (p *Pool) ZRemRangeByRank(key string, start, stop int64) *redis.IntCmd {
+func (p *Pool) ZRemRangeByRank(ctx context.Context, key string, start, stop int64) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZRemRangeByRank(key, start, stop)
+	return conn.ZRemRangeByRank(ctx, key, start, stop)
 }
 
-func (p *Pool) ZRemRangeByScore(key, min, max string) *redis.IntCmd {
+func (p *Pool) ZRemRangeByScore(ctx context.Context, key, min, max string) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZRemRangeByScore(key, min, max)
+	return conn.ZRemRangeByScore(ctx, key, min, max)
 }
 
-func (p *Pool) ZRemRangeByLex(key, min, max string) *redis.IntCmd {
+func (p *Pool) ZRemRangeByLex(ctx context.Context, key, min, max string) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZRemRangeByLex(key, min, max)
+	return conn.ZRemRangeByLex(ctx, key, min, max)
 }
 
-func (p *Pool) ZRevRange(key string, start, stop int64) *redis.StringSliceCmd {
+func (p *Pool) ZRevRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.ZRevRange(key, start, stop)
+	return conn.ZRevRange(ctx, key, start, stop)
 }
 
-func (p *Pool) ZRevRangeWithScores(key string, start, stop int64) *redis.ZSliceCmd {
+func (p *Pool) ZRevRangeWithScores(ctx context.Context, key string, start, stop int64) *redis.ZSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorZSliceCmd(err)
 	}
-	return conn.ZRevRangeWithScores(key, start, stop)
+	return conn.ZRevRangeWithScores(ctx, key, start, stop)
 }
 
-func (p *Pool) ZRevRangeByScore(key string, opt *redis.ZRangeBy) *redis.StringSliceCmd {
+func (p *Pool) ZRevRangeByScore(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.ZRevRangeByScore(key, opt)
+	return conn.ZRevRangeByScore(ctx, key, opt)
 }
 
-func (p *Pool) ZRevRangeByLex(key string, opt *redis.ZRangeBy) *redis.StringSliceCmd {
+func (p *Pool) ZRevRangeByLex(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.ZRevRangeByLex(key, opt)
+	return conn.ZRevRangeByLex(ctx, key, opt)
 }
 
-func (p *Pool) ZRevRangeByScoreWithScores(key string, opt *redis.ZRangeBy) *redis.ZSliceCmd {
+func (p *Pool) ZRevRangeByScoreWithScores(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.ZSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorZSliceCmd(err)
 	}
-	return conn.ZRevRangeByScoreWithScores(key, opt)
+	return conn.ZRevRangeByScoreWithScores(ctx, key, opt)
 }
 
-func (p *Pool) ZRevRank(key, member string) *redis.IntCmd {
+func (p *Pool) ZRevRank(ctx context.Context, key, member string) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.ZRevRank(key, member)
+	return conn.ZRevRank(ctx, key, member)
 }
 
-func (p *Pool) ZScore(key, member string) *redis.FloatCmd {
+func (p *Pool) ZScore(ctx context.Context, key, member string) *redis.FloatCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorFloatCmd(err)
 	}
-	return conn.ZScore(key, member)
+	return conn.ZScore(ctx, key, member)
 }
 
-func (p *Pool) ZUnionStore(dest string, store *redis.ZStore) *redis.IntCmd {
+func (p *Pool) ZUnionStore(ctx context.Context, dest string, store *redis.ZStore) *redis.IntCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.ZUnionStore(dest, store)
+		return conn.ZUnionStore(ctx, dest, store)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	keys := append(store.Keys, dest)
@@ -1636,13 +1659,13 @@ func (p *Pool) ZUnionStore(dest string, store *redis.ZStore) *redis.IntCmd {
 		return newErrorIntCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(keys[0])
-	return conn.ZUnionStore(dest, store)
+	return conn.ZUnionStore(ctx, dest, store)
 }
 
-func (p *Pool) ZInterStore(destination string, store *redis.ZStore) *redis.IntCmd {
+func (p *Pool) ZInterStore(ctx context.Context, destination string, store *redis.ZStore) *redis.IntCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.ZInterStore(destination, store)
+		return conn.ZInterStore(ctx, destination, store)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	keys := append(store.Keys, destination)
@@ -1650,37 +1673,37 @@ func (p *Pool) ZInterStore(destination string, store *redis.ZStore) *redis.IntCm
 		return newErrorIntCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(keys[0])
-	return conn.ZInterStore(destination, store)
+	return conn.ZInterStore(ctx, destination, store)
 }
 
-func (p *Pool) GeoAdd(key string, geoLocation ...*redis.GeoLocation) *redis.IntCmd {
+func (p *Pool) GeoAdd(ctx context.Context, key string, geoLocation ...*redis.GeoLocation) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.GeoAdd(key, geoLocation...)
+	return conn.GeoAdd(ctx, key, geoLocation...)
 }
 
-func (p *Pool) GeoPos(key string, members ...string) *redis.GeoPosCmd {
+func (p *Pool) GeoPos(ctx context.Context, key string, members ...string) *redis.GeoPosCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorGeoCmd(err)
 	}
-	return conn.GeoPos(key, members...)
+	return conn.GeoPos(ctx, key, members...)
 }
 
-func (p *Pool) GeoRadius(key string, longitude, latitude float64, query *redis.GeoRadiusQuery) *redis.GeoLocationCmd {
+func (p *Pool) GeoRadius(ctx context.Context, key string, longitude, latitude float64, query *redis.GeoRadiusQuery) *redis.GeoLocationCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorGeoLocationCmd(err)
 	}
-	return conn.GeoRadius(key, longitude, latitude, query)
+	return conn.GeoRadius(ctx, key, longitude, latitude, query)
 }
 
-func (p *Pool) GeoRadiusStore(key string, longitude, latitude float64, query *redis.GeoRadiusQuery) *redis.IntCmd {
+func (p *Pool) GeoRadiusStore(ctx context.Context, key string, longitude, latitude float64, query *redis.GeoRadiusQuery) *redis.IntCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.GeoRadiusStore(key, longitude, latitude, query)
+		return conn.GeoRadiusStore(ctx, key, longitude, latitude, query)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if query.Store != "" && factory.isCrossMultiShards(key, query.Store) {
@@ -1690,21 +1713,21 @@ func (p *Pool) GeoRadiusStore(key string, longitude, latitude float64, query *re
 		return newErrorIntCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(key)
-	return conn.GeoRadiusStore(key, longitude, latitude, query)
+	return conn.GeoRadiusStore(ctx, key, longitude, latitude, query)
 }
 
-func (p *Pool) GeoRadiusByMember(key, member string, query *redis.GeoRadiusQuery) *redis.GeoLocationCmd {
+func (p *Pool) GeoRadiusByMember(ctx context.Context, key, member string, query *redis.GeoRadiusQuery) *redis.GeoLocationCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorGeoLocationCmd(err)
 	}
-	return conn.GeoRadiusByMember(key, member, query)
+	return conn.GeoRadiusByMember(ctx, key, member, query)
 }
 
-func (p *Pool) GeoRadiusByMemberStore(key, member string, query *redis.GeoRadiusQuery) *redis.IntCmd {
+func (p *Pool) GeoRadiusByMemberStore(ctx context.Context, key, member string, query *redis.GeoRadiusQuery) *redis.IntCmd {
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
 		conn, _ := p.connFactory.getMasterConn()
-		return conn.GeoRadiusByMemberStore(key, member, query)
+		return conn.GeoRadiusByMemberStore(ctx, key, member, query)
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	if query.Store != "" && factory.isCrossMultiShards(key, query.Store) {
@@ -1714,34 +1737,34 @@ func (p *Pool) GeoRadiusByMemberStore(key, member string, query *redis.GeoRadius
 		return newErrorIntCmd(errCrossMultiShards)
 	}
 	conn, _ := p.connFactory.getMasterConn(key)
-	return conn.GeoRadiusByMemberStore(key, member, query)
+	return conn.GeoRadiusByMemberStore(ctx, key, member, query)
 }
 
-func (p *Pool) GeoDist(key string, member1, member2, unit string) *redis.FloatCmd {
+func (p *Pool) GeoDist(ctx context.Context, key string, member1, member2, unit string) *redis.FloatCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorFloatCmd(err)
 	}
-	return conn.GeoDist(key, member1, member2, unit)
+	return conn.GeoDist(ctx, key, member1, member2, unit)
 }
 
-func (p *Pool) GeoHash(key string, members ...string) *redis.StringSliceCmd {
+func (p *Pool) GeoHash(ctx context.Context, key string, members ...string) *redis.StringSliceCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringSliceCmd(err)
 	}
-	return conn.GeoHash(key, members...)
+	return conn.GeoHash(ctx, key, members...)
 }
 
-func (p *Pool) PFAdd(key string, els ...interface{}) *redis.IntCmd {
+func (p *Pool) PFAdd(ctx context.Context, key string, els ...interface{}) *redis.IntCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorIntCmd(errShardPoolUnSupported)
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.PFAdd(key, els...)
+	return conn.PFAdd(ctx, key, els...)
 }
 
-func (p *Pool) PFCount(keys ...string) *redis.IntCmd {
+func (p *Pool) PFCount(ctx context.Context, keys ...string) *redis.IntCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorIntCmd(errShardPoolUnSupported)
 	}
@@ -1749,13 +1772,13 @@ func (p *Pool) PFCount(keys ...string) *redis.IntCmd {
 	if err != nil {
 		return newErrorIntCmd(err)
 	}
-	return conn.PFCount(keys...)
+	return conn.PFCount(ctx, keys...)
 }
 
-func (p *Pool) PFMerge(dest string, keys ...string) *redis.StatusCmd {
+func (p *Pool) PFMerge(ctx context.Context, dest string, keys ...string) *redis.StatusCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorStatusCmd(errShardPoolUnSupported)
 	}
 	conn, _ := p.connFactory.getMasterConn()
-	return conn.PFMerge(dest, keys...)
+	return conn.PFMerge(ctx, dest, keys...)
 }

@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/bitleak/go-redis-pool/hashkit"
-	redis "github.com/go-redis/redis/v7"
+	"github.com/go-redis/redis/v8"
 )
 
 const (
@@ -17,8 +17,7 @@ const (
 )
 
 var (
-	errMoreThanOneParam      = errors.New("the number of params shouldn't be greater than 1")
-	errPartialCommandFailure = errors.New("partital failure in command")
+	errMoreThanOneParam = errors.New("the number of params shouldn't be greater than 1")
 )
 
 type ShardConfig struct {

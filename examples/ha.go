@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -8,14 +9,14 @@ import (
 )
 
 func main() {
-	pool, err := pool.NewHA(&pool.HAConfig{
+	ctx := context.Background()
+	p, err := pool.NewHA(&pool.HAConfig{
 		Master: "127.0.0.1:6379",
 		Slaves: []string{
 			"127.0.0.1:6379",
 			"127.0.0.1:6380",
 			"127.0.0.1:6381",
 		},
-
 		// optional
 		AutoEjectHost:      true,
 		ServerFailureLimit: 3,
@@ -23,8 +24,8 @@ func main() {
 		MinServerNum:       2,
 	})
 	if err != nil {
-		// log the error
+		fmt.Println(err)
 	}
-	pool.Set("foo", "bar", 0)
-	fmt.Println(pool.Get("pool"))
+	p.Set(ctx, "foo", "bar", 0)
+	fmt.Println(p.Get(ctx, "pool"))
 }
