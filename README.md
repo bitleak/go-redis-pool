@@ -10,7 +10,7 @@ go-redis-pool requires a Go version with [Modules](https://github.com/golang/go/
 
 ```shell
 go mod init github.com/my/repo
-go get github.com/bitleak/go-redis-pool
+go get github.com/bitleak/go-redis-pool/v2
 ```
 
 ## Quick Start
