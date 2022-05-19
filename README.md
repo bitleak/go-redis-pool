@@ -15,7 +15,7 @@ go get github.com/bitleak/go-redis-pool/v2
 
 ## Quick Start
 
-API documentation and examples are available via [godoc](https://godoc.org/github.com/bitleak/go-redis-pool)
+API documentation and examples are available via [godoc](https://godoc.org/github.com/bitleak/go-redis-pool/v2)
 
 ### Setup The Master-Slave Pool
 
