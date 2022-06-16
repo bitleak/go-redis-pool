@@ -1,3 +1,7 @@
+## v2.0.1 (2022-06-16)
+
+- Fixed error return value for MGetWithGD
+
 ## v2.0.0 (2022-05-19)
 
 - Update go-redis library to v8

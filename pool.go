@@ -334,7 +334,14 @@ func (p *Pool) MGetWithGD(ctx context.Context, keys ...string) ([]interface{}, m
 	fn := func(factory *ShardConnFactory, keyList ...string) redis.Cmder {
 		conn, err := factory.getSlaveConn(keyList[0])
 		if err != nil {
-			return newErrorCmd(err)
+			args := make([]interface{}, 1+len(keyList))
+			args[0] = "mget"
+			for i, key := range keyList {
+				args[1+i] = key
+			}
+			cmd := redis.NewSliceCmd(ctx, args...)
+			cmd.SetErr(err)
+			return cmd
 		}
 		return conn.MGet(ctx, keyList...)
 	}
