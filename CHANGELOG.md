@@ -1,3 +1,7 @@
+## v2.1.0 (2022-07-12)
+
+- Added getting statistics of all connection pools
+
 ## v2.0.1 (2022-06-16)
 
 - Fixed error return value for MGetWithGD

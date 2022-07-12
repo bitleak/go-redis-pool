@@ -63,6 +63,19 @@ func NewShardConnFactory(cfg *ShardConfig) (*ShardConnFactory, error) {
 	return factory, nil
 }
 
+func (factory *ShardConnFactory) stats() map[string]*redis.PoolStats {
+	results := make(map[string]*redis.PoolStats, len(factory.shards))
+
+	for _, shard := range factory.shards {
+		result := shard.stats()
+		for addr, stats := range result {
+			results[addr] = stats
+		}
+	}
+
+	return results
+}
+
 func (factory *ShardConnFactory) close() {
 	for _, shard := range factory.shards {
 		shard.close()

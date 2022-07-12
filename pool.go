@@ -25,6 +25,7 @@ var (
 type ConnFactory interface {
 	getSlaveConn(key ...string) (*redis.Client, error)
 	getMasterConn(key ...string) (*redis.Client, error)
+	stats() map[string]*redis.PoolStats
 	close()
 }
 
@@ -160,12 +161,8 @@ func NewShard(cfg *ShardConfig) (*Pool, error) {
 	}, nil
 }
 
-func (p *Pool) Stats() (*redis.PoolStats, error) {
-	conn, err := p.connFactory.getMasterConn()
-	if err != nil {
-		return nil, err
-	}
-	return conn.PoolStats(), nil
+func (p *Pool) Stats() map[string]*redis.PoolStats {
+	return p.connFactory.stats()
 }
 
 func (p *Pool) Close() {

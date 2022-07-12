@@ -86,6 +86,12 @@ func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
 	return factory, nil
 }
 
+func (factory *HAConnFactory) stats() map[string]*redis.PoolStats {
+	return map[string]*redis.PoolStats{
+		factory.master.redisCli.Options().Addr: factory.master.redisCli.PoolStats(),
+	}
+}
+
 func (factory *HAConnFactory) close() {
 	factory.master.redisCli.Close()
 	factory.slaves.close()
