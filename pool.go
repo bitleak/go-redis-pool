@@ -206,12 +206,20 @@ func (p *Pool) TxPipelined(ctx context.Context, fn func(redis.Pipeliner) error) 
 }
 
 func (p *Pool) Ping(ctx context.Context) *redis.StatusCmd {
-	// FIXME: use config to determine whether no key would access the master
-	conn, err := p.connFactory.getMasterConn()
-	if err != nil {
-		return newErrorStatusCmd(err)
+	if _, ok := p.connFactory.(*HAConnFactory); ok {
+		conn, _ := p.connFactory.getMasterConn()
+		return conn.Ping(ctx)
 	}
-	return conn.Ping(ctx)
+	var result *redis.StatusCmd
+	factory := p.connFactory.(*ShardConnFactory)
+	for _, shard := range factory.shards {
+		conn, _ := shard.getMasterConn()
+		result = conn.Ping(ctx)
+		if result.Err() != nil {
+			return result
+		}
+	}
+	return result
 }
 
 func (p *Pool) Get(ctx context.Context, key string) *redis.StringCmd {
@@ -425,18 +433,17 @@ func (p *Pool) MSetWithGD(ctx context.Context, values ...interface{}) []*redis.S
 	}
 
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var result []*redis.StatusCmd
+	result := make([]*redis.StatusCmd, len(index2Values))
+	var i int
 	for ind, vals := range index2Values {
 		wg.Add(1)
 		conn, _ := factory.shards[ind].getMasterConn()
-		go func(conn *redis.Client, vals ...interface{}) {
-			defer wg.Done()
+		go func(i int, conn *redis.Client, vals ...interface{}) {
 			status := conn.MSet(ctx, vals...)
-			mu.Lock()
-			result = append(result, status)
-			mu.Unlock()
-		}(conn, vals...)
+			result[i] = status
+			wg.Done()
+		}(i, conn, vals...)
+		i++
 	}
 	wg.Wait()
 	return result
@@ -519,12 +526,158 @@ func (p *Pool) Expire(ctx context.Context, key string, expiration time.Duration)
 	return conn.Expire(ctx, key, expiration)
 }
 
+// MExpire gives the result for each group of keys
+func (p *Pool) MExpire(ctx context.Context, expiration time.Duration, keys ...string) map[string]error {
+	keyErrorsMap := func(results []redis.Cmder) map[string]error {
+		if len(results) == 0 {
+			return nil
+		}
+		keyErrors := make(map[string]error, 0)
+		for _, result := range results {
+			if result.Err() != nil {
+				args := result.Args()
+				for i, arg := range args {
+					if i == 0 || i == 2 {
+						continue
+					}
+					keyErrors[arg.(string)] = result.Err()
+				}
+			}
+		}
+		return keyErrors
+	}
+
+	if _, ok := p.connFactory.(*HAConnFactory); ok {
+		conn, _ := p.connFactory.getMasterConn()
+		pipe := conn.Pipeline()
+		for _, key := range keys {
+			pipe.Expire(ctx, key, expiration)
+		}
+		results, err := pipe.Exec(ctx)
+		_ = pipe.Close()
+		if err != nil {
+			return keyErrorsMap(results)
+		}
+		return nil
+	}
+
+	factory := p.connFactory.(*ShardConnFactory)
+	index2Keys := make(map[uint32][]string)
+	for _, key := range keys {
+		ind := factory.getShardIndex(key)
+		if _, ok := index2Keys[ind]; !ok {
+			index2Keys[ind] = make([]string, 0)
+		}
+		index2Keys[ind] = append(index2Keys[ind], key)
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var results []redis.Cmder
+	var i int
+	for ind, keys := range index2Keys {
+		wg.Add(1)
+		conn, _ := factory.shards[ind].getMasterConn()
+		go func(i int, conn *redis.Client, keys ...string) {
+			pipe := conn.Pipeline()
+			for _, key := range keys {
+				pipe.Expire(ctx, key, expiration)
+			}
+			result, err := pipe.Exec(ctx)
+			_ = pipe.Close()
+			if err != nil {
+				mu.Lock()
+				results = append(results, result...)
+				mu.Unlock()
+			}
+			wg.Done()
+		}(i, conn, keys...)
+		i++
+	}
+	wg.Wait()
+
+	return keyErrorsMap(results)
+}
+
 func (p *Pool) ExpireAt(ctx context.Context, key string, tm time.Time) *redis.BoolCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorBoolCmd(err)
 	}
 	return conn.ExpireAt(ctx, key, tm)
+}
+
+// MExpireAt gives the result for each group of keys
+func (p *Pool) MExpireAt(ctx context.Context, tm time.Time, keys ...string) map[string]error {
+	keyErrorsMap := func(results []redis.Cmder) map[string]error {
+		if len(results) == 0 {
+			return nil
+		}
+		keyErrors := make(map[string]error, 0)
+		for _, result := range results {
+			if result.Err() != nil {
+				args := result.Args()
+				for i, arg := range args {
+					if i == 0 || i == 2 {
+						continue
+					}
+					keyErrors[arg.(string)] = result.Err()
+				}
+			}
+		}
+		return keyErrors
+	}
+
+	if _, ok := p.connFactory.(*HAConnFactory); ok {
+		conn, _ := p.connFactory.getMasterConn()
+		pipe := conn.Pipeline()
+		for _, key := range keys {
+			pipe.ExpireAt(ctx, key, tm)
+		}
+		results, err := pipe.Exec(ctx)
+		_ = pipe.Close()
+		if err != nil {
+			return keyErrorsMap(results)
+		}
+		return nil
+	}
+
+	factory := p.connFactory.(*ShardConnFactory)
+	index2Keys := make(map[uint32][]string)
+	for _, key := range keys {
+		ind := factory.getShardIndex(key)
+		if _, ok := index2Keys[ind]; !ok {
+			index2Keys[ind] = make([]string, 0)
+		}
+		index2Keys[ind] = append(index2Keys[ind], key)
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var results []redis.Cmder
+	var i int
+	for ind, keys := range index2Keys {
+		wg.Add(1)
+		conn, _ := factory.shards[ind].getMasterConn()
+		go func(i int, conn *redis.Client, keys ...string) {
+			pipe := conn.Pipeline()
+			for _, key := range keys {
+				pipe.ExpireAt(ctx, key, tm)
+			}
+			result, err := pipe.Exec(ctx)
+			_ = pipe.Close()
+			if err != nil {
+				mu.Lock()
+				results = append(results, result...)
+				mu.Unlock()
+			}
+			wg.Done()
+		}(i, conn, keys...)
+		i++
+	}
+	wg.Wait()
+
+	return keyErrorsMap(results)
 }
 
 func (p *Pool) TTL(ctx context.Context, key string) *redis.DurationCmd {

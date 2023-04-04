@@ -65,14 +65,12 @@ func NewShardConnFactory(cfg *ShardConfig) (*ShardConnFactory, error) {
 
 func (factory *ShardConnFactory) stats() map[string]*redis.PoolStats {
 	results := make(map[string]*redis.PoolStats, len(factory.shards))
-
 	for _, shard := range factory.shards {
 		result := shard.stats()
 		for addr, stats := range result {
 			results[addr] = stats
 		}
 	}
-
 	return results
 }
 
@@ -152,18 +150,17 @@ func (factory *ShardConnFactory) doMultiKeys(fn multiKeyFn, keys ...string) []re
 		return []redis.Cmder{fn(factory, keys...)}
 	}
 
-	var mu sync.Mutex
 	var wg sync.WaitGroup
-	var results []redis.Cmder
+	results := make([]redis.Cmder, len(index2Keys))
+	var i int
 	for _, keyList := range index2Keys {
 		wg.Add(1)
-		go func(keyList []string) {
-			defer wg.Done()
+		go func(keyList []string, i int) {
 			result := fn(factory, keyList...)
-			mu.Lock()
-			results = append(results, result)
-			mu.Unlock()
-		}(keyList)
+			results[i] = result
+			wg.Done()
+		}(keyList, i)
+		i++
 	}
 	wg.Wait()
 	return results

@@ -1,3 +1,9 @@
+## v2.2.0 (2023-04-05)
+
+- Adding new commands MExpire/MExpireAt with support for executing multiple keys
+- Fixed the Ping command, now the check occurs on all shards and returns the first error for the sharded configuration
+- Minor performance improvements
+
 ## v2.1.0 (2022-07-12)
 
 - Added getting statistics of all connection pools

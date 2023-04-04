@@ -1820,6 +1820,14 @@ var _ = Describe("Pool_GD", func() {
 	})
 
 	Describe("Commands", func() {
+		It("ping", func() {
+			for _, pool := range pools {
+				_, err := pool.Ping(ctx).Result()
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(Equal("dial tcp 127.0.0.1:8384: connect: connection refused"))
+			}
+		})
+
 		It("gd", func() {
 			kvs := []string{"a3", "a3", "b3", "b3", "c3", "c3", "d3", "d3"}
 			keys := make([]string, 0)
@@ -1841,6 +1849,54 @@ var _ = Describe("Pool_GD", func() {
 				Expect(keyErrors).Should(HaveKey("a3"))
 				Expect(keyErrors).Should(HaveKey("c3"))
 				Expect(keyErrors).Should(HaveKey("e3"))
+				_, _ = pool.Del(ctx, keys...)
+			}
+		})
+
+		It("mexpire", func() {
+			kvs := []string{"a3", "a3", "b3", "b3", "c3", "c3", "d3", "d3"}
+			keys := make([]string, 0)
+			for i := 0; i < len(kvs); i += 2 {
+				keys = append(keys, kvs[i])
+			}
+			for _, pool := range pools {
+				statuses := pool.MSetWithGD(ctx, kvs)
+				time.Sleep(10 * time.Millisecond)
+				sort.Slice(statuses, func(i, j int) bool {
+					return statuses[i].Err() == nil
+				})
+				Expect(statuses[0].Err()).NotTo(HaveOccurred())
+				Expect(statuses[1].Err()).To(HaveOccurred())
+				keyErrors := pool.MExpire(ctx, 5*time.Minute, keys...)
+				time.Sleep(10 * time.Millisecond)
+				Expect(keyErrors).Should(HaveKey("a3"))
+				Expect(keyErrors).Should(HaveKey("c3"))
+				Expect(pool.TTL(ctx, "b3").Val()).NotTo(Equal(-1))
+				Expect(pool.TTL(ctx, "d3").Val()).NotTo(Equal(-1))
+				_, _ = pool.Del(ctx, keys...)
+			}
+		})
+
+		It("mexpireat", func() {
+			kvs := []string{"a3", "a3", "b3", "b3", "c3", "c3", "d3", "d3"}
+			keys := make([]string, 0)
+			for i := 0; i < len(kvs); i += 2 {
+				keys = append(keys, kvs[i])
+			}
+			for _, pool := range pools {
+				statuses := pool.MSetWithGD(ctx, kvs)
+				time.Sleep(10 * time.Millisecond)
+				sort.Slice(statuses, func(i, j int) bool {
+					return statuses[i].Err() == nil
+				})
+				Expect(statuses[0].Err()).NotTo(HaveOccurred())
+				Expect(statuses[1].Err()).To(HaveOccurred())
+				keyErrors := pool.MExpireAt(ctx, time.Now().Add(5*time.Minute), keys...)
+				time.Sleep(10 * time.Millisecond)
+				Expect(keyErrors).Should(HaveKey("a3"))
+				Expect(keyErrors).Should(HaveKey("c3"))
+				Expect(pool.TTL(ctx, "b3").Val()).NotTo(Equal(-1))
+				Expect(pool.TTL(ctx, "d3").Val()).NotTo(Equal(-1))
 				_, _ = pool.Del(ctx, keys...)
 			}
 		})
