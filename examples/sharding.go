@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	pool "github.com/bitleak/go-redis-pool/v2"
-	"github.com/bitleak/go-redis-pool/v2/hashkit"
+	pool "github.com/bitleak/go-redis-pool/v3"
+	"github.com/bitleak/go-redis-pool/v3/hashkit"
 )
 
 func main() {
@@ -37,7 +37,7 @@ func main() {
 		HashFn:         hashkit.Xxh3,
 	})
 	if err != nil {
-		fmt.Println(err)
+		panic(err)
 	}
 	p.Set(ctx, "foo", "bar", 0)
 	fmt.Println(p.Get(ctx, "pool"))

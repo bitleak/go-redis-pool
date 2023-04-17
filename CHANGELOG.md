@@ -1,3 +1,8 @@
+## v3.0.0 (2023-04-17)
+
+- Update go-redis library to v9 (v9.0.3)
+- Bug fixes
+
 ## v2.2.0 (2023-04-05)
 
 - Adding new commands MExpire/MExpireAt with support for executing multiple keys

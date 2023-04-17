@@ -6,9 +6,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/go-redis/redis/v8"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/redis/go-redis/v9"
 )
 
 var _ = Describe("Pool", func() {
@@ -21,16 +21,16 @@ var _ = Describe("Pool", func() {
 
 	BeforeEach(func() {
 		haConfig := &HAConfig{
-			Master: "minikube:8379",
+			Master: "127.0.0.1:8379",
 			Slaves: []string{
-				"minikube:8380",
-				"minikube:8381",
+				"127.0.0.1:8380",
+				"127.0.0.1:8381",
 			},
 		}
 		haConfig1 := &HAConfig{
-			Master: "minikube:8382",
+			Master: "127.0.0.1:8382",
 			Slaves: []string{
-				"minikube:8383",
+				"127.0.0.1:8383",
 			},
 		}
 
@@ -1144,7 +1144,7 @@ var _ = Describe("Pool", func() {
 	Describe("ZSet Commands", func() {
 		It("ZAdd/ZScore", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd(ctx, "key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
@@ -1158,7 +1158,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZAddXX", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAddXX(ctx, "key", &redis.Z{
+				_, err := pool.ZAddXX(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
@@ -1171,13 +1171,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZAddNX", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAddNX(ctx, "key", &redis.Z{
+				_, err := pool.ZAddNX(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				_, err = pool.ZAddNX(ctx, "key", &redis.Z{
+				_, err = pool.ZAddNX(ctx, "key", redis.Z{
 					Score:  2,
 					Member: "one",
 				}).Result()
@@ -1191,16 +1191,16 @@ var _ = Describe("Pool", func() {
 
 		It("ZAddCh", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd(ctx, "key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				ch, err := pool.ZAdd(ctx, "key", &redis.Z{
+				ch, err := pool.ZAdd(ctx, "key", redis.Z{
 					Score:  2,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
 				}).Result()
@@ -1211,7 +1211,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZIncr", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd(ctx, "key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
@@ -1228,7 +1228,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZIncrNX", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd(ctx, "key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
@@ -1251,7 +1251,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZIncrXX", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd(ctx, "key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
@@ -1274,7 +1274,7 @@ var _ = Describe("Pool", func() {
 
 		It("ZIncrBy", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd(ctx, "key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
@@ -1292,7 +1292,7 @@ var _ = Describe("Pool", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(card).To(Equal(int64(0)))
 
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
@@ -1306,17 +1306,17 @@ var _ = Describe("Pool", func() {
 
 		It("ZCount", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  2,
 					Member: "two",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1334,22 +1334,22 @@ var _ = Describe("Pool", func() {
 
 		It("ZLexCount", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  0,
 					Member: "a",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  0,
 					Member: "b",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  0,
 					Member: "b",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  0,
 					Member: "c",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  0,
 					Member: "d",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  0,
 					Member: "e",
 				}).Result()
@@ -1367,13 +1367,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZPopMax", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1391,13 +1391,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZPopMin", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1415,13 +1415,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZRange", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1443,20 +1443,20 @@ var _ = Describe("Pool", func() {
 
 		It("ZRangeWithScores", func() {
 			for _, pool := range pools {
-				_, err := pool.ZAdd(ctx, "key", &redis.Z{
+				_, err := pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "uno",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  2,
 					Member: "two",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1473,13 +1473,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZRangeByScore", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1503,16 +1503,16 @@ var _ = Describe("Pool", func() {
 
 		It("ZRangeByLex", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  0,
 					Member: "a",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  0,
 					Member: "b",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  0,
 					Member: "c",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  0,
 					Member: "d",
 				}).Result()
@@ -1536,13 +1536,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZRank", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1556,13 +1556,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZRem", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1578,13 +1578,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZRemRangeByRank", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1598,13 +1598,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZRemRangeByScore", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1618,13 +1618,13 @@ var _ = Describe("Pool", func() {
 
 		It("ZRemRangeByLex", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "key", &redis.Z{
+				_, err = pool.ZAdd(ctx, "key", redis.Z{
 					Score:  1,
 					Member: "a",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "b",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "c",
 				}).Result()
@@ -1638,22 +1638,22 @@ var _ = Describe("Pool", func() {
 
 		It("ZInterStore", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "set1", &redis.Z{
+				_, err = pool.ZAdd(ctx, "set1", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				_, err = pool.ZAdd(ctx, "set2", &redis.Z{
+				_, err = pool.ZAdd(ctx, "set2", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1679,22 +1679,22 @@ var _ = Describe("Pool", func() {
 			pool := shardPool
 			set1 := "aset"
 			set2 := "iset"
-			_, err = pool.ZAdd(ctx, set1, &redis.Z{
+			_, err = pool.ZAdd(ctx, set1, redis.Z{
 				Score:  1,
 				Member: "one",
-			}, &redis.Z{
+			}, redis.Z{
 				Score:  2,
 				Member: "two",
 			}).Result()
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = pool.ZAdd(ctx, set2, &redis.Z{
+			_, err = pool.ZAdd(ctx, set2, redis.Z{
 				Score:  1,
 				Member: "one",
-			}, &redis.Z{
+			}, redis.Z{
 				Score:  2,
 				Member: "two",
-			}, &redis.Z{
+			}, redis.Z{
 				Score:  3,
 				Member: "three",
 			}).Result()
@@ -1709,22 +1709,22 @@ var _ = Describe("Pool", func() {
 
 		It("ZUnionStore", func() {
 			for _, pool := range pools {
-				_, err = pool.ZAdd(ctx, "set1", &redis.Z{
+				_, err = pool.ZAdd(ctx, "set1", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
 				}).Result()
 				Expect(err).NotTo(HaveOccurred())
 
-				_, err = pool.ZAdd(ctx, "set2", &redis.Z{
+				_, err = pool.ZAdd(ctx, "set2", redis.Z{
 					Score:  1,
 					Member: "one",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  2,
 					Member: "two",
-				}, &redis.Z{
+				}, redis.Z{
 					Score:  3,
 					Member: "three",
 				}).Result()
@@ -1751,22 +1751,22 @@ var _ = Describe("Pool", func() {
 			pool := shardPool
 			set1 := "aset"
 			set2 := "iset"
-			_, err = pool.ZAdd(ctx, set1, &redis.Z{
+			_, err = pool.ZAdd(ctx, set1, redis.Z{
 				Score:  1,
 				Member: "one",
-			}, &redis.Z{
+			}, redis.Z{
 				Score:  2,
 				Member: "two",
 			}).Result()
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = pool.ZAdd(ctx, set2, &redis.Z{
+			_, err = pool.ZAdd(ctx, set2, redis.Z{
 				Score:  1,
 				Member: "one",
-			}, &redis.Z{
+			}, redis.Z{
 				Score:  2,
 				Member: "two",
-			}, &redis.Z{
+			}, redis.Z{
 				Score:  3,
 				Member: "three",
 			}).Result()
@@ -1790,10 +1790,10 @@ var _ = Describe("Pool_GD", func() {
 
 	BeforeEach(func() {
 		haConfig := &HAConfig{
-			Master: "minikube:8379",
+			Master: "127.0.0.1:8379",
 		}
 		haConfig1 := &HAConfig{
-			Master: "minikube:8384",
+			Master: "127.0.0.1:8384",
 		}
 
 		shardPool, err = NewShard(&ShardConfig{
@@ -1806,7 +1806,7 @@ var _ = Describe("Pool_GD", func() {
 		shards := shardPool.connFactory.(*ShardConnFactory).shards
 		for _, shard := range shards {
 			master, _ := shard.getMasterConn()
-			if master.Options().Addr == "minikube:8384" {
+			if master.Options().Addr == "127.0.0.1:8384" {
 				master.Shutdown(ctx)
 			} else {
 				Expect(master.FlushDB(ctx).Err()).NotTo(HaveOccurred())

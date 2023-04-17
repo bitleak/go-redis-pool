@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -78,10 +78,14 @@ func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
 
 	factory := new(HAConnFactory)
 	factory.cfg = cfg
-	options := cfg.Options
+
+	// copy the parameters through the value so as not to overwrite the settings when creating the master client to the Redis Server
+	// on the first call to opt.init() and not to transfer corrupted parameters to connect the slave
+	options := *cfg.Options
 	options.Addr = cfg.Master
 	options.Password = cfg.Password
-	factory.master = newClient(redis.NewClient(options), 0)
+
+	factory.master = newClient(redis.NewClient(&options), 0)
 	factory.slaves = newClientPool(cfg)
 	return factory, nil
 }
@@ -154,7 +158,6 @@ func newClient(redisCli *redis.Client, weight int64) *client {
 		failureCount:  0,
 		lastEjectTime: 0,
 	}
-	redisCli.AddHook(newFailureHook(c))
 	return c
 }
 
@@ -190,7 +193,11 @@ func newClientPool(cfg *HAConfig) *clientPool {
 		slaveOptions.Addr = slave
 		slaveOptions.Password = slavePassword
 		redisCli := redis.NewClient(&slaveOptions)
-		pool.slaves[i] = newClient(redisCli, cfg.weights[i])
+		cli := newClient(redisCli, cfg.weights[i])
+		if cfg.AutoEjectHost && len(cfg.Slaves) > 1 {
+			redisCli.AddHook(newFailureHook(cli))
+		}
+		pool.slaves[i] = cli
 	}
 	pool.alives = pool.slaves
 	if pool.pollType == PollByWeight {
@@ -201,7 +208,9 @@ func newClientPool(cfg *HAConfig) *clientPool {
 		}
 		pool.weightRanges = weightRanges
 	}
-	go pool.detectFailureTick()
+	if cfg.AutoEjectHost && len(cfg.Slaves) > 1 {
+		go pool.detectFailureTick()
+	}
 	return pool
 }
 

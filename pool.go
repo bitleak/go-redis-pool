@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -17,9 +17,10 @@ const (
 )
 
 var (
-	errWrongArguments       = errors.New("wrong number of arguments")
-	errShardPoolUnSupported = errors.New("shard pool didn't support the command")
-	errCrossMultiShards     = errors.New("cross multi shards was not allowed")
+	errWrongArgumentsNumber       = errors.New("wrong number of arguments")
+	errWrongNumberValuesArguments = errors.New("wrong number of values for arguments")
+	errShardPoolUnSupported       = errors.New("shard pool didn't support the command")
+	errCrossMultiShards           = errors.New("cross multi shards was not allowed")
 )
 
 type ConnFactory interface {
@@ -29,8 +30,8 @@ type ConnFactory interface {
 	close()
 }
 
-func newErrorStringIntMapCmd(err error) *redis.StringIntMapCmd {
-	cmd := &redis.StringIntMapCmd{}
+func newErrorMapStringIntCmd(err error) *redis.MapStringIntCmd {
+	cmd := &redis.MapStringIntCmd{}
 	cmd.SetErr(err)
 	return cmd
 }
@@ -59,8 +60,8 @@ func newErrorSliceCmd(err error) *redis.SliceCmd {
 	return cmd
 }
 
-func newErrorStringStringMapCmd(err error) *redis.StringStringMapCmd {
-	cmd := &redis.StringStringMapCmd{}
+func newErrorStringStringMapCmd(err error) *redis.MapStringStringCmd {
+	cmd := &redis.MapStringStringCmd{}
 	cmd.SetErr(err)
 	return cmd
 }
@@ -170,9 +171,35 @@ func (p *Pool) Close() {
 }
 
 func (p *Pool) WithMaster(key ...string) (*redis.Client, error) {
-	return p.connFactory.getMasterConn(key...)
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		if len(key) != 1 {
+			return nil, errWrongNumberValuesArguments
+		}
+		return p.connFactory.getMasterConn(key...)
+	}
+	return p.connFactory.getMasterConn()
 }
 
+// WithMasterShards returns master connects for shards with executable keys for them
+func (p *Pool) WithMasterShards(keys ...string) (map[*redis.Client][]string, error) {
+	mapClients := make(map[*redis.Client][]string, 0)
+	if factory, ok := p.connFactory.(*ShardConnFactory); ok {
+		if len(keys) == 0 {
+			return nil, errWrongNumberValuesArguments
+		}
+		index2Keys := factory.groupKeysByInd(keys...)
+		for ind, keys := range index2Keys {
+			conn, _ := factory.shards[ind].getMasterConn()
+			mapClients[conn] = keys
+		}
+		return mapClients, nil
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	mapClients[conn] = keys
+	return mapClients, nil
+}
+
+// Pipeline returns pipeline for HA configuration, to get a pipeline for shards use WithMasterShards
 func (p *Pool) Pipeline() (redis.Pipeliner, error) {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return nil, errShardPoolUnSupported
@@ -189,6 +216,7 @@ func (p *Pool) Pipelined(ctx context.Context, fn func(redis.Pipeliner) error) ([
 	return conn.Pipelined(ctx, fn)
 }
 
+// TxPipeline returns pipeline (with MULTI/EXEC) for HA configuration, to get a pipeline for shards use WithMasterShards
 func (p *Pool) TxPipeline() (redis.Pipeliner, error) {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return nil, errShardPoolUnSupported
@@ -420,7 +448,7 @@ func (p *Pool) MSetWithGD(ctx context.Context, values ...interface{}) []*redis.S
 	args := make([]interface{}, 0, len(values))
 	args = appendArgs(args, values)
 	if len(args) == 0 || len(args)%2 != 0 {
-		return []*redis.StatusCmd{newErrorStatusCmd(errWrongArguments)}
+		return []*redis.StatusCmd{newErrorStatusCmd(errWrongArgumentsNumber)}
 	}
 	factory := p.connFactory.(*ShardConnFactory)
 	index2Values := make(map[uint32][]interface{})
@@ -477,7 +505,7 @@ func (p *Pool) MSetNX(ctx context.Context, values ...interface{}) *redis.BoolCmd
 	args := make([]interface{}, 0, len(values))
 	args = appendArgs(args, values)
 	if len(args) == 0 || len(args)%2 != 0 {
-		return newErrorBoolCmd(errWrongArguments)
+		return newErrorBoolCmd(errWrongArgumentsNumber)
 	}
 
 	factory := p.connFactory.(*ShardConnFactory)
@@ -554,8 +582,10 @@ func (p *Pool) MExpire(ctx context.Context, expiration time.Duration, keys ...st
 			pipe.Expire(ctx, key, expiration)
 		}
 		results, err := pipe.Exec(ctx)
-		_ = pipe.Close()
 		if err != nil {
+			for _, res := range results {
+				res.SetErr(err)
+			}
 			return keyErrorsMap(results)
 		}
 		return nil
@@ -584,8 +614,10 @@ func (p *Pool) MExpire(ctx context.Context, expiration time.Duration, keys ...st
 				pipe.Expire(ctx, key, expiration)
 			}
 			result, err := pipe.Exec(ctx)
-			_ = pipe.Close()
 			if err != nil {
+				for _, res := range result {
+					res.SetErr(err)
+				}
 				mu.Lock()
 				results = append(results, result...)
 				mu.Unlock()
@@ -635,8 +667,10 @@ func (p *Pool) MExpireAt(ctx context.Context, tm time.Time, keys ...string) map[
 			pipe.ExpireAt(ctx, key, tm)
 		}
 		results, err := pipe.Exec(ctx)
-		_ = pipe.Close()
 		if err != nil {
+			for _, res := range results {
+				res.SetErr(err)
+			}
 			return keyErrorsMap(results)
 		}
 		return nil
@@ -665,8 +699,10 @@ func (p *Pool) MExpireAt(ctx context.Context, tm time.Time, keys ...string) map[
 				pipe.ExpireAt(ctx, key, tm)
 			}
 			result, err := pipe.Exec(ctx)
-			_ = pipe.Close()
 			if err != nil {
+				for _, res := range result {
+					res.SetErr(err)
+				}
 				mu.Lock()
 				results = append(results, result...)
 				mu.Unlock()
@@ -855,13 +891,13 @@ func (p *Pool) PubSubChannels(ctx context.Context, pattern string) *redis.String
 	return conn.PubSubChannels(ctx, pattern)
 }
 
-func (p *Pool) PubSubNumSub(ctx context.Context, channels ...string) *redis.StringIntMapCmd {
+func (p *Pool) PubSubNumSub(ctx context.Context, channels ...string) *redis.MapStringIntCmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
-		return newErrorStringIntMapCmd(errShardPoolUnSupported)
+		return newErrorMapStringIntCmd(errShardPoolUnSupported)
 	}
 	conn, err := p.connFactory.getSlaveConn()
 	if err != nil {
-		return newErrorStringIntMapCmd(err)
+		return newErrorMapStringIntCmd(err)
 	}
 	return conn.PubSubNumSub(ctx, channels...)
 }
@@ -1092,7 +1128,7 @@ func (p *Pool) HGet(ctx context.Context, key, field string) *redis.StringCmd {
 	return conn.HGet(ctx, key, field)
 }
 
-func (p *Pool) HGetAll(ctx context.Context, key string) *redis.StringStringMapCmd {
+func (p *Pool) HGetAll(ctx context.Context, key string) *redis.MapStringStringCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
 		return newErrorStringStringMapCmd(err)
@@ -1518,7 +1554,7 @@ func (p *Pool) SUnionStore(ctx context.Context, destination string, keys ...stri
 	return conn.SUnionStore(ctx, destination, keys...)
 }
 
-func (p *Pool) ZAdd(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
+func (p *Pool) ZAdd(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
@@ -1526,7 +1562,7 @@ func (p *Pool) ZAdd(ctx context.Context, key string, members ...*redis.Z) *redis
 	return conn.ZAdd(ctx, key, members...)
 }
 
-func (p *Pool) ZAddNX(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
+func (p *Pool) ZAddNX(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)
@@ -1534,7 +1570,7 @@ func (p *Pool) ZAddNX(ctx context.Context, key string, members ...*redis.Z) *red
 	return conn.ZAddNX(ctx, key, members...)
 }
 
-func (p *Pool) ZAddXX(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
+func (p *Pool) ZAddXX(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
 		return newErrorIntCmd(err)

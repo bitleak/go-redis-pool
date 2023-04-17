@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	pool "github.com/bitleak/go-redis-pool/v2"
+	pool "github.com/bitleak/go-redis-pool/v3"
 )
 
 func main() {
@@ -24,7 +24,7 @@ func main() {
 		MinServerNum:       2,
 	})
 	if err != nil {
-		fmt.Println(err)
+		panic(err)
 	}
 	p.Set(ctx, "foo", "bar", 0)
 	fmt.Println(p.Get(ctx, "pool"))

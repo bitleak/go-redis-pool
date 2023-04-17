@@ -10,12 +10,12 @@ go-redis-pool requires a Go version with [Modules](https://github.com/golang/go/
 
 ```shell
 go mod init github.com/my/repo
-go get github.com/bitleak/go-redis-pool/v2
+go get github.com/bitleak/go-redis-pool/v3
 ```
 
 ## Quick Start
 
-API documentation and examples are available via [godoc](https://godoc.org/github.com/bitleak/go-redis-pool/v2)
+API documentation and examples are available via [godoc](https://godoc.org/github.com/bitleak/go-redis-pool/v3)
 
 ### Setup The Master-Slave Pool
 
