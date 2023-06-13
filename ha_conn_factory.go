@@ -26,6 +26,7 @@ type HAConfig struct {
 	Password         string         // the password of the master
 	ReadonlyPassword string         // the passsword of slaves
 	Options          *redis.Options // redis options
+	Hooks            []redis.Hook   // optional list of redis hooks
 	PollType         int            // the slave polling type
 
 	AutoEjectHost      bool          // eject the failure host or not
@@ -85,7 +86,7 @@ func NewHAConnFactory(cfg *HAConfig) (*HAConnFactory, error) {
 	options.Addr = cfg.Master
 	options.Password = cfg.Password
 
-	factory.master = newClient(redis.NewClient(&options), 0)
+	factory.master = newClient(redis.NewClient(&options), 0, cfg.Hooks)
 	factory.slaves = newClientPool(cfg)
 	return factory, nil
 }
@@ -150,13 +151,16 @@ func (cfg *HAConfig) init() error {
 	return nil
 }
 
-func newClient(redisCli *redis.Client, weight int64) *client {
+func newClient(redisCli *redis.Client, weight int64, hooks []redis.Hook) *client {
 	c := &client{
 		redisCli: redisCli,
 		weight:   weight,
 
 		failureCount:  0,
 		lastEjectTime: 0,
+	}
+	for _, hook := range hooks {
+		c.redisCli.AddHook(hook)
 	}
 	return c
 }
@@ -193,7 +197,7 @@ func newClientPool(cfg *HAConfig) *clientPool {
 		slaveOptions.Addr = slave
 		slaveOptions.Password = slavePassword
 		redisCli := redis.NewClient(&slaveOptions)
-		cli := newClient(redisCli, cfg.weights[i])
+		cli := newClient(redisCli, cfg.weights[i], cfg.Hooks)
 		if cfg.AutoEjectHost && len(cfg.Slaves) > 1 {
 			redisCli.AddHook(newFailureHook(cli))
 		}
