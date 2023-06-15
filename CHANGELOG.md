@@ -1,3 +1,7 @@
+## v3.1.0 (2023-06-13)
+
+- Edit optional Hooks to HAConfig
+
 ## v3.0.0 (2023-04-17)
 
 - Update go-redis library to v9 (v9.0.3)
