@@ -604,11 +604,10 @@ func (p *Pool) MExpire(ctx context.Context, expiration time.Duration, keys ...st
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var results []redis.Cmder
-	var i int
 	for ind, keys := range index2Keys {
 		wg.Add(1)
 		conn, _ := factory.shards[ind].getMasterConn()
-		go func(i int, conn *redis.Client, keys ...string) {
+		go func(conn *redis.Client, keys ...string) {
 			pipe := conn.Pipeline()
 			for _, key := range keys {
 				pipe.Expire(ctx, key, expiration)
@@ -623,8 +622,7 @@ func (p *Pool) MExpire(ctx context.Context, expiration time.Duration, keys ...st
 				mu.Unlock()
 			}
 			wg.Done()
-		}(i, conn, keys...)
-		i++
+		}(conn, keys...)
 	}
 	wg.Wait()
 
@@ -689,11 +687,10 @@ func (p *Pool) MExpireAt(ctx context.Context, tm time.Time, keys ...string) map[
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var results []redis.Cmder
-	var i int
 	for ind, keys := range index2Keys {
 		wg.Add(1)
 		conn, _ := factory.shards[ind].getMasterConn()
-		go func(i int, conn *redis.Client, keys ...string) {
+		go func(conn *redis.Client, keys ...string) {
 			pipe := conn.Pipeline()
 			for _, key := range keys {
 				pipe.ExpireAt(ctx, key, tm)
@@ -708,8 +705,7 @@ func (p *Pool) MExpireAt(ctx context.Context, tm time.Time, keys ...string) map[
 				mu.Unlock()
 			}
 			wg.Done()
-		}(i, conn, keys...)
-		i++
+		}(conn, keys...)
 	}
 	wg.Wait()
 
