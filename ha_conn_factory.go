@@ -2,6 +2,7 @@ package pool
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -126,13 +127,14 @@ func (cfg *HAConfig) init() error {
 	}
 	cfg.weights = make([]int64, len(cfg.Slaves))
 	for i, slave := range cfg.Slaves {
-		elems := strings.Split(slave, ":")
 		cfg.weights[i] = 100
+		elems := strings.Split(slave, ":")
 		if len(elems) == 3 {
 			cfg.weights[i], err = strconv.ParseInt(elems[2], 10, 64)
 			if err != nil {
 				return errors.New("the weight should be integer")
 			}
+			cfg.Slaves[i] = fmt.Sprintf("%s:%s", elems[0], elems[1])
 		}
 	}
 	if cfg.ServerRetryTimeout <= 0 {

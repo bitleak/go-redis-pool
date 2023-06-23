@@ -353,7 +353,7 @@ func (p *Pool) MGetWithGD(ctx context.Context, keys ...string) ([]interface{}, m
 	keyErrors := make(map[string]error, 0)
 
 	if _, ok := p.connFactory.(*HAConnFactory); ok {
-		conn, _ := p.connFactory.getMasterConn()
+		conn, _ := p.connFactory.getSlaveConn()
 		vals, err := conn.MGet(ctx, keys...).Result()
 		if err != nil {
 			for _, key := range keys {

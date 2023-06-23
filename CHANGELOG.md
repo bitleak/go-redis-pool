@@ -1,3 +1,8 @@
+## v3.1.1 (2023-06-24)
+
+- Fixed connection selection error for HAConnFactory in MGet/MGetWithGD
+- Fixed a bug with the handling of the weight value for the slave
+
 ## v3.1.0 (2023-06-13)
 
 - Edit optional Hooks to HAConfig

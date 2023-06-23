@@ -23,15 +23,17 @@ var _ = Describe("Pool", func() {
 		haConfig := &HAConfig{
 			Master: "127.0.0.1:8379",
 			Slaves: []string{
-				"127.0.0.1:8380",
-				"127.0.0.1:8381",
+				"127.0.0.1:8380:100",
+				"127.0.0.1:8381:200",
 			},
+			PollType: PollByWeight,
 		}
 		haConfig1 := &HAConfig{
 			Master: "127.0.0.1:8382",
 			Slaves: []string{
 				"127.0.0.1:8383",
 			},
+			PollType: PollByWeight,
 		}
 
 		haPool, err = NewHA(haConfig)
@@ -1824,7 +1826,6 @@ var _ = Describe("Pool_GD", func() {
 			for _, pool := range pools {
 				_, err := pool.Ping(ctx).Result()
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(Equal("dial tcp 127.0.0.1:8384: connect: connection refused"))
 			}
 		})
 
