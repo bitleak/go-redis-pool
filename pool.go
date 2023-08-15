@@ -812,12 +812,28 @@ func (p *Pool) Eval(ctx context.Context, script string, keys []string, args ...i
 	return conn.Eval(ctx, script, keys, args...)
 }
 
+func (p *Pool) EvalRO(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.EvalRO(ctx, script, keys, args...)
+}
+
 func (p *Pool) EvalSha(ctx context.Context, sha1 string, keys []string, args ...interface{}) *redis.Cmd {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
 		return newErrorCmd(errShardPoolUnSupported)
 	}
 	conn, _ := p.connFactory.getMasterConn()
 	return conn.EvalSha(ctx, sha1, keys, args...)
+}
+
+func (p *Pool) EvalShaRO(ctx context.Context, sha1 string, keys []string, args ...interface{}) *redis.Cmd {
+	if _, ok := p.connFactory.(*ShardConnFactory); ok {
+		return newErrorCmd(errShardPoolUnSupported)
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return conn.EvalShaRO(ctx, sha1, keys, args...)
 }
 
 func (p *Pool) ScriptExists(ctx context.Context, hashes ...string) *redis.BoolSliceCmd {
