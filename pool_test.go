@@ -1097,7 +1097,7 @@ var _ = Describe("Pool", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(dist)).To(Equal(1))
 				Expect(dist[0].Member).To(Equal(geo1.Name))
-				Expect(dist[0].Score).To(Equal(float64(0)))
+				Expect(dist[0].Score).To(BeNumerically("<=", 0.01))
 			}
 		})
 

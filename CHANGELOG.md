@@ -1,3 +1,7 @@
+## v3.2.0 (2023-09-21)
+
+- Update go-redis library to v9.2.0
+
 ## v3.1.1 (2023-06-24)
 
 - Fixed connection selection error for HAConnFactory in MGet/MGetWithGD

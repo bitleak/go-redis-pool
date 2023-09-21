@@ -1,11 +1,11 @@
 module github.com/bitleak/go-redis-pool/v3
 
-go 1.19
+go 1.20
 
 require (
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.19.0
-	github.com/redis/go-redis/v9 v9.0.3
+	github.com/redis/go-redis/v9 v9.2.0
 	github.com/zeebo/xxh3 v1.0.2
 )
 
