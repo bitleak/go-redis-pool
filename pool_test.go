@@ -1191,6 +1191,67 @@ var _ = Describe("Pool", func() {
 			}
 		})
 
+
+		It("ZAddGT", func() {
+			for _, pool := range pools {
+				_, err := pool.ZAddGT(ctx, "key", redis.Z{
+					Score:  2,
+					Member: "one",
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+
+				_, err = pool.ZAddGT(ctx, "key", redis.Z{
+					Score:  1,
+					Member: "one",
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+
+				score, err := pool.ZScore(ctx, "key", "one").Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(score).To(Equal(float64(2)))
+
+				_, err = pool.ZAddGT(ctx, "key", redis.Z{
+					Score:  3,
+					Member: "one",
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+
+				score, err = pool.ZScore(ctx, "key", "one").Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(score).To(Equal(float64(3)))
+			}
+		})
+
+		It("ZAddLT", func() {
+			for _, pool := range pools {
+				_, err := pool.ZAddLT(ctx, "key", redis.Z{
+					Score:  2,
+					Member: "one",
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+
+				_, err = pool.ZAddLT(ctx, "key", redis.Z{
+					Score:  3,
+					Member: "one",
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+
+				score, err := pool.ZScore(ctx, "key", "one").Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(score).To(Equal(float64(2)))
+
+				_, err = pool.ZAddLT(ctx, "key", redis.Z{
+					Score:  1,
+					Member: "one",
+				}).Result()
+				Expect(err).NotTo(HaveOccurred())
+
+				score, err = pool.ZScore(ctx, "key", "one").Result()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(score).To(Equal(float64(1)))
+			}
+		})
+
 		It("ZAddCh", func() {
 			for _, pool := range pools {
 				_, err := pool.ZAdd(ctx, "key", redis.Z{

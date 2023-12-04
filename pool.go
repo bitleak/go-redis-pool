@@ -1574,6 +1574,22 @@ func (p *Pool) ZAddXX(ctx context.Context, key string, members ...redis.Z) *redi
 	return conn.ZAddXX(ctx, key, members...)
 }
 
+func (p *Pool) ZAddGT(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd {
+	conn, err := p.connFactory.getMasterConn(key)
+	if err != nil {
+		return newErrorIntCmd(err)
+	}
+	return conn.ZAddGT(ctx, key, members...)
+}
+
+func (p *Pool) ZAddLT(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd {
+	conn, err := p.connFactory.getMasterConn(key)
+	if err != nil {
+		return newErrorIntCmd(err)
+	}
+	return conn.ZAddLT(ctx, key, members...)
+}
+
 func (p *Pool) ZAddCh(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
 	conn, err := p.connFactory.getMasterConn(key)
 	if err != nil {
