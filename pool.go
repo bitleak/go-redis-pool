@@ -290,6 +290,14 @@ func (p *Pool) SetRange(ctx context.Context, key string, offset int64, value str
 	return conn.SetRange(ctx, key, offset, value)
 }
 
+func (p *Pool) SetArgs(ctx context.Context, key string, value interface{}, a redis.SetArgs) *redis.StatusCmd {
+	conn, err := p.connFactory.getMasterConn(key)
+	if err != nil {
+		return newErrorStatusCmd(err)
+	}
+	return conn.SetArgs(ctx, key, value, a)
+}
+
 func (p *Pool) StrLen(ctx context.Context, key string) *redis.IntCmd {
 	conn, err := p.connFactory.getSlaveConn(key)
 	if err != nil {
