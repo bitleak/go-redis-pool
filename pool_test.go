@@ -373,6 +373,16 @@ var _ = Describe("Pool", func() {
 			}
 		})
 
+		It("setargs", func() {
+			key := "setargs_key"
+			for _, pool := range pools {
+				Expect(pool.SetArgs(ctx, key, "bar", redis.SetArgs{Mode: "XX"}).Val()).To(Equal(""))
+				Expect(pool.SetArgs(ctx, key, "bar", redis.SetArgs{}).Val()).To(Equal("OK"))
+				Expect(pool.SetArgs(ctx, key, "bar", redis.SetArgs{Mode: "NX"}).Val()).To(Equal(""))
+				_, _ = pool.Del(ctx, key)
+			}
+		})
+
 		It("setrange", func() {
 			key := "setrange_key"
 			for _, pool := range pools {
@@ -1190,7 +1200,6 @@ var _ = Describe("Pool", func() {
 				Expect(score).To(Equal(float64(1)))
 			}
 		})
-
 
 		It("ZAddGT", func() {
 			for _, pool := range pools {
