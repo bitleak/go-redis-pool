@@ -1995,3 +1995,37 @@ func (p *Pool) PFMerge(ctx context.Context, dest string, keys ...string) *redis.
 	conn, _ := p.connFactory.getMasterConn()
 	return conn.PFMerge(ctx, dest, keys...)
 }
+
+func (p *Pool) FlushDB(ctx context.Context) *redis.StatusCmd {
+	if _, ok := p.connFactory.(*HAConnFactory); ok {
+		conn, _ := p.connFactory.getMasterConn()
+		return conn.FlushDB(ctx)
+	}
+	var result *redis.StatusCmd
+	factory := p.connFactory.(*ShardConnFactory)
+	for _, shard := range factory.shards {
+		conn, _ := shard.getMasterConn()
+		result = conn.FlushDB(ctx)
+		if result.Err() != nil {
+			return result
+		}
+	}
+	return result
+}
+
+func (p *Pool) FlushDBAsync(ctx context.Context) *redis.StatusCmd {
+	if _, ok := p.connFactory.(*HAConnFactory); ok {
+		conn, _ := p.connFactory.getMasterConn()
+		return conn.FlushDBAsync(ctx)
+	}
+	var result *redis.StatusCmd
+	factory := p.connFactory.(*ShardConnFactory)
+	for _, shard := range factory.shards {
+		conn, _ := shard.getMasterConn()
+		result = conn.FlushDBAsync(ctx)
+		if result.Err() != nil {
+			return result
+		}
+	}
+	return result
+}

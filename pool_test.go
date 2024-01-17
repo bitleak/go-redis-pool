@@ -1850,6 +1850,41 @@ var _ = Describe("Pool", func() {
 			}).Result()
 			Expect(err).To(Equal(errCrossMultiShards))
 		})
+
+		It("flushdb", func() {
+			keys := []string{"a3", "b3", "c3", "d3"}
+			for _, pool := range pools {
+				for _, key := range keys {
+					Expect(pool.Set(ctx, key, key, 0).Err()).NotTo(HaveOccurred())
+				}
+				time.Sleep(10 * time.Millisecond)
+				nBefore, err := pool.Exists(ctx, keys...)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(int(nBefore)).To(Equal(len(keys)))
+				Expect(pool.FlushDB(ctx).Err()).NotTo(HaveOccurred())
+				nAfter, err := pool.Exists(ctx, keys...)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(int(nAfter)).To(Equal(0))
+			}
+		})
+
+		It("flushdbasync", func() {
+			keys := []string{"a3", "b3", "c3", "d3"}
+			for _, pool := range pools {
+				for _, key := range keys {
+					Expect(pool.Set(ctx, key, key, 0).Err()).NotTo(HaveOccurred())
+				}
+				time.Sleep(10 * time.Millisecond)
+				nBefore, err := pool.Exists(ctx, keys...)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(int(nBefore)).To(Equal(len(keys)))
+				Expect(pool.FlushDBAsync(ctx).Err()).NotTo(HaveOccurred())
+				time.Sleep(100 * time.Millisecond)
+				nAfter, err := pool.Exists(ctx, keys...)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(int(nAfter)).To(Equal(0))
+			}
+		})
 	})
 })
 
