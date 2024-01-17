@@ -1,3 +1,16 @@
+## v3.3.0 (2024-01-17)
+
+- Rollback to stable version go-redis v9.0.3
+- Add FlushDB/FlushDBAsync methods
+
+## v3.2.2 (2023-12-06)
+
+- Add SetArgs method
+
+## v3.2.1 (2023-12-04)
+
+- Add a couple of variants of ZADD command (ZADD key GT, ZADD key LT)
+
 ## v3.2.0 (2023-09-21)
 
 - Update go-redis library to v9.2.0
