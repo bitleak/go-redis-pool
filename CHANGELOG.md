@@ -1,3 +1,7 @@
+## v3.3.1 (2024-22-07)
+
+- Add ExpireNX, ExpireXX, ExpireGT, ExpireLT methods
+
 ## v3.3.0 (2024-01-17)
 
 - Rollback to stable version go-redis v9.0.3

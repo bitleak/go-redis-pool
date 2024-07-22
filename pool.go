@@ -562,6 +562,38 @@ func (p *Pool) Expire(ctx context.Context, key string, expiration time.Duration)
 	return conn.Expire(ctx, key, expiration)
 }
 
+func (p *Pool) ExpireNX(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd {
+	conn, err := p.connFactory.getMasterConn(key)
+	if err != nil {
+		return newErrorBoolCmd(err)
+	}
+	return conn.ExpireNX(ctx, key, expiration)
+}
+
+func (p *Pool) ExpireXX(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd {
+	conn, err := p.connFactory.getMasterConn(key)
+	if err != nil {
+		return newErrorBoolCmd(err)
+	}
+	return conn.ExpireXX(ctx, key, expiration)
+}
+
+func (p *Pool) ExpireGT(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd {
+	conn, err := p.connFactory.getMasterConn(key)
+	if err != nil {
+		return newErrorBoolCmd(err)
+	}
+	return conn.ExpireGT(ctx, key, expiration)
+}
+
+func (p *Pool) ExpireLT(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd {
+	conn, err := p.connFactory.getMasterConn(key)
+	if err != nil {
+		return newErrorBoolCmd(err)
+	}
+	return conn.ExpireLT(ctx, key, expiration)
+}
+
 // MExpire gives the result for each group of keys
 func (p *Pool) MExpire(ctx context.Context, expiration time.Duration, keys ...string) map[string]error {
 	keyErrorsMap := func(results []redis.Cmder) map[string]error {
