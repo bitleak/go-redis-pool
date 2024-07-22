@@ -209,6 +209,49 @@ var _ = Describe("Pool", func() {
 			}
 		})
 
+		It("expire_nx", func() {
+			key := "expirenx_key"
+			for _, pool := range pools {
+				Expect(pool.Set(ctx, key, "bar", 0).Val()).To(Equal("OK"))
+				Expect(pool.Expire(ctx, key, 10*time.Second).Val()).To(Equal(true))
+				Expect(pool.ExpireNX(ctx, key, 20*time.Second).Val()).To(Equal(false))
+				_, _ = pool.Del(ctx, key)
+			}
+		})
+
+		It("expire_xx", func() {
+			key := "expirexx_key"
+			for _, pool := range pools {
+				Expect(pool.Set(ctx, key, "bar", 0).Val()).To(Equal("OK"))
+				Expect(pool.ExpireXX(ctx, key, 10*time.Second).Val()).To(Equal(false))
+				Expect(pool.Expire(ctx, key, 10*time.Second).Val()).To(Equal(true))
+				Expect(pool.ExpireXX(ctx, key, 20*time.Second).Val()).To(Equal(true))
+				_, _ = pool.Del(ctx, key)
+			}
+		})
+
+		It("expire_gt", func() {
+			key := "expiregt_key"
+			for _, pool := range pools {
+				Expect(pool.Set(ctx, key, "bar", 0).Val()).To(Equal("OK"))
+				Expect(pool.Expire(ctx, key, 10*time.Second).Val()).To(Equal(true))
+				Expect(pool.ExpireGT(ctx, key, time.Second).Val()).To(Equal(false))
+				Expect(pool.ExpireGT(ctx, key, 20*time.Second).Val()).To(Equal(true))
+				_, _ = pool.Del(ctx, key)
+			}
+		})
+
+		It("expire_lt", func() {
+			key := "expirelt_key"
+			for _, pool := range pools {
+				Expect(pool.Set(ctx, key, "bar", 0).Val()).To(Equal("OK"))
+				Expect(pool.Expire(ctx, key, 10*time.Second).Val()).To(Equal(true))
+				Expect(pool.ExpireLT(ctx, key, 20*time.Second).Val()).To(Equal(false))
+				Expect(pool.ExpireLT(ctx, key, time.Second).Val()).To(Equal(true))
+				_, _ = pool.Del(ctx, key)
+			}
+		})
+
 		It("expire_at", func() {
 			key := "expireat_foo"
 			for _, pool := range pools {
