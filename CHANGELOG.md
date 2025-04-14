@@ -1,6 +1,6 @@
 ## v3.3.2 (2025-14-04)
 
-- Add ExpireNX, ExpireXX, ExpireGT, ExpireLT methods
+- Add GetMasterShards method
 
 ## v3.3.1 (2024-22-07)
 
