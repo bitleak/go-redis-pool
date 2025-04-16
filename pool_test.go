@@ -1928,6 +1928,21 @@ var _ = Describe("Pool", func() {
 				Expect(int(nAfter)).To(Equal(0))
 			}
 		})
+
+		It("GetMasterShards", func() {
+			var (
+				shards []*redis.Client
+				err    error
+			)
+
+			shards, err = haPool.GetMasterShards()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(shards)).To(Equal(1))
+
+			shards, err = shardPool.GetMasterShards()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(shards)).To(Equal(2))
+		})
 	})
 })
 

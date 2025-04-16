@@ -199,6 +199,20 @@ func (p *Pool) WithMasterShards(keys ...string) (map[*redis.Client][]string, err
 	return mapClients, nil
 }
 
+// GetMasterShards returns master connects for shards
+func (p *Pool) GetMasterShards() ([]*redis.Client, error) {
+	if factory, ok := p.connFactory.(*ShardConnFactory); ok {
+		clients := make([]*redis.Client, 0, len(factory.shards))
+		for _, shard := range factory.shards {
+			conn, _ := shard.getMasterConn()
+			clients = append(clients, conn)
+		}
+		return clients, nil
+	}
+	conn, _ := p.connFactory.getMasterConn()
+	return []*redis.Client{conn}, nil
+}
+
 // Pipeline returns pipeline for HA configuration, to get a pipeline for shards use WithMasterShards
 func (p *Pool) Pipeline() (redis.Pipeliner, error) {
 	if _, ok := p.connFactory.(*ShardConnFactory); ok {
